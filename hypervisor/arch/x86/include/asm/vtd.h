@@ -10,6 +10,9 @@
  * the COPYING file in the top-level directory.
  */
 
+#ifndef _JAILHOUSE_ASM_VTD_H
+#define _JAILHOUSE_ASM_VTD_H
+
 #include <jailhouse/acpi.h>
 #include <asm/cell.h>
 
@@ -147,3 +150,5 @@ void vtd_cell_exit(struct cell *cell);
 void vtd_shutdown(void);
 
 void vtd_check_pending_faults(struct per_cpu *cpu_data);
+
+#endif

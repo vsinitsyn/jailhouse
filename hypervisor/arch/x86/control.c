@@ -15,8 +15,7 @@
 #include <jailhouse/processor.h>
 #include <asm/apic.h>
 #include <asm/control.h>
-#include <asm/vmx.h>
-#include <asm/vtd.h>
+#include <asm/vm.h>
 
 struct exception_frame {
 	u64 vector;
@@ -41,16 +40,16 @@ int arch_cell_create(struct per_cpu *cpu_data, struct cell *cell)
 {
 	int err;
 
-	err = vmx_cell_init(cell);
+	err = vm_cell_init(cell);
 	if (err)
 		return err;
-	vmx_root_cell_shrink(cell->config);
+	vm_root_cell_shrink(cell->config);
 	flush_root_cell_cpu_caches(cpu_data);
 
-	err = vtd_cell_init(cell);
+	err = iommu_cell_init(cell);
 	if (err)
-		vmx_cell_exit(cell);
-	vtd_root_cell_shrink(cell->config);
+		vm_cell_exit(cell);
+	iommu_root_cell_shrink(cell->config);
 
 	return 0;
 }
@@ -60,13 +59,13 @@ int arch_map_memory_region(struct cell *cell,
 {
 	int err;
 
-	err = vmx_map_memory_region(cell, mem);
+	err = vm_map_memory_region(cell, mem);
 	if (err)
 		return err;
 
-	err = vtd_map_memory_region(cell, mem);
+	err = iommu_map_memory_region(cell, mem);
 	if (err)
-		vmx_unmap_memory_region(cell, mem);
+		vm_unmap_memory_region(cell, mem);
 	return err;
 }
 
@@ -75,23 +74,23 @@ int arch_unmap_memory_region(struct cell *cell,
 {
 	int err;
 
-	err = vtd_unmap_memory_region(cell, mem);
+	err = iommu_unmap_memory_region(cell, mem);
 	if (err)
 		return err;
 
-	return vmx_unmap_memory_region(cell, mem);
+	return vm_unmap_memory_region(cell, mem);
 }
 
 void arch_cell_destroy(struct per_cpu *cpu_data, struct cell *cell)
 {
-	vtd_cell_exit(cell);
-	vmx_cell_exit(cell);
+	iommu_cell_exit(cell);
+	vm_cell_exit(cell);
 	flush_root_cell_cpu_caches(cpu_data);
 }
 
 void arch_shutdown(void)
 {
-	vtd_shutdown();
+	iommu_shutdown();
 }
 
 void arch_suspend_cpu(unsigned int cpu_id)
@@ -181,7 +180,7 @@ static void x86_enter_wait_for_sipi(struct per_cpu *cpu_data)
 	cpu_data->init_signaled = false;
 	cpu_data->wait_for_sipi = true;
 	apic_clear();
-	vmx_cpu_park();
+	vm_cpu_park();
 }
 
 int x86_handle_events(struct per_cpu *cpu_data)
@@ -206,7 +205,7 @@ int x86_handle_events(struct per_cpu *cpu_data)
 
 		if (cpu_data->shutdown_cpu) {
 			apic_clear();
-			vmx_cpu_exit(cpu_data);
+			vm_cpu_exit(cpu_data);
 			asm volatile("1: hlt; jmp 1b");
 		}
 
@@ -226,7 +225,7 @@ int x86_handle_events(struct per_cpu *cpu_data)
 	if (cpu_data->flush_caches) {
 		cpu_data->flush_caches = false;
 		x86_tlb_flush_all();
-		vmx_invept();
+		vm_maps_flush_all();
 	}
 
 	spin_unlock(&cpu_data->control_lock);
