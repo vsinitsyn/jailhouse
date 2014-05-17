@@ -12,6 +12,8 @@
 
 #include <asm/percpu.h>
 
+#include <jailhouse/config.h>
+
 /* Entry point for Linux loader module on JAILHOUSE_ENABLE */
 	.text
 	.globl arch_entry
@@ -137,6 +139,7 @@ irq_entry:
 	interrupt_entry apic_irq_handler
 
 
+#ifdef ENABLE_VMX
 /* VM-exit handling */
 	.globl vm_exit
 vm_exit:
@@ -182,3 +185,4 @@ vm_exit:
 
 	lea -PERCPU_STACK_END(%rsp),%rdi
 	jmp vmx_entry_failure
+#endif

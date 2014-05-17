@@ -10,6 +10,9 @@
  * the COPYING file in the top-level directory.
  */
 
+#ifndef _JAILHOUSE_ASM_VMX_H
+#define _JAILHOUSE_ASM_VMX_H
+
 #include <asm/percpu.h>
 #include <asm/paging.h>
 #include <asm/processor.h>
@@ -307,3 +310,5 @@ void vmx_invept(void);
 
 void vmx_schedule_vmexit(struct per_cpu *cpu_data);
 void vmx_cpu_park(struct per_cpu *cpu_data);
+
+#endif

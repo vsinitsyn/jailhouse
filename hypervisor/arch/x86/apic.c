@@ -10,6 +10,8 @@
  * the COPYING file in the top-level directory.
  */
 
+#include <jailhouse/config.h>
+
 #include <jailhouse/processor.h>
 #include <jailhouse/paging.h>
 #include <jailhouse/printk.h>
@@ -205,7 +207,16 @@ void apic_send_irq(struct apic_irq_message irq_msg)
 
 void apic_nmi_handler(struct per_cpu *cpu_data)
 {
+#ifdef ENABLE_VMX
 	vmx_schedule_vmexit(cpu_data);
+#else
+	/*
+	 * No vmx_schedule_vmexit() equivalent needed since other
+	 * ways to serialize NMI exist.
+	 */
+	panic_printk("Got NMI in host mode, halting the CPU");
+	panic_halt();
+#endif
 }
 
 void apic_irq_handler(struct per_cpu *cpu_data)

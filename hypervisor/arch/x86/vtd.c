@@ -989,3 +989,8 @@ void vtd_shutdown(void)
 			vtd_update_gcmd_reg(reg_base, VTD_GCMD_QIE, 0);
 	}
 }
+
+bool vtd_cell_ir_emulation(struct cell *cell)
+{
+	return cell->vtd.ir_emulation;
+}

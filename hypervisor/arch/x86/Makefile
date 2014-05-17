@@ -12,5 +12,8 @@
 
 always := built-in.o
 
-obj-y := apic.o dbg-write.o entry.o setup.o vmx.o control.o mmio.o \
-	 vtd.o paging.o ../../pci.o pci.o ioapic.o i8042.o
+#obj-y := apic.o dbg-write.o entry.o setup.o vmx.o control.o mmio.o \
+#	 vtd.o paging.o ../../pci.o pci.o ioapic.o i8042.o
+
+obj-y := apic.o dbg-write.o entry.o setup.o control.o mmio.o \
+	 paging.o ../../pci.o pci.o ioapic.o i8042.o svm.o amd_iommu.o
