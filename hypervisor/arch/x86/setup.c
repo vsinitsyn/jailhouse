@@ -17,8 +17,7 @@
 #include <asm/apic.h>
 #include <asm/bitops.h>
 #include <asm/ioapic.h>
-#include <asm/vmx.h>
-#include <asm/vtd.h>
+#include <asm/vm.h>
 
 #define IDT_PRESENT_INT		0x00008e00
 
@@ -77,7 +76,7 @@ int arch_init_early(void)
 	for (vector = IRQ_DESC_START; vector < NUM_IDT_DESC; vector++)
 		set_idt_int_gate(vector, (unsigned long)irq_entry);
 
-	err = vmx_init();
+	err = vm_init();
 	if (err)
 		return err;
 
@@ -198,7 +197,7 @@ int arch_cpu_init(struct per_cpu *cpu_data)
 	if (err)
 		goto error_out;
 
-	err = vmx_cpu_init(cpu_data);
+	err = vm_cpu_init(cpu_data);
 	if (err)
 		goto error_out;
 
@@ -213,7 +212,7 @@ int arch_init_late()
 {
 	int err;
 
-	err = vtd_init();
+	err = iommu_init();
 	if (err)
 		return err;
 
@@ -230,7 +229,7 @@ int arch_init_late()
 
 void arch_cpu_activate_vmm(struct per_cpu *cpu_data)
 {
-	vmx_cpu_activate_vmm(cpu_data);
+	vm_cpu_activate_vmm(cpu_data);
 }
 
 void arch_cpu_restore(struct per_cpu *cpu_data)
@@ -240,7 +239,7 @@ void arch_cpu_restore(struct per_cpu *cpu_data)
 	if (!cpu_data->initialized)
 		return;
 
-	vmx_cpu_exit(cpu_data);
+	vm_cpu_exit(cpu_data);
 
 	write_msr(MSR_EFER, cpu_data->linux_efer);
 	write_cr3(cpu_data->linux_cr3);
