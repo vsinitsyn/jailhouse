@@ -13,6 +13,8 @@
 #ifndef _JAILHOUSE_ASM_PERCPU_H
 #define _JAILHOUSE_ASM_PERCPU_H
 
+#include <jailhouse/config.h>
+
 #include <asm/types.h>
 #include <asm/paging.h>
 #include <asm/processor.h>
@@ -31,12 +33,19 @@
 #include <asm/cell.h>
 #include <asm/spinlock.h>
 
+#ifdef ENABLE_VMX
 struct vmcs {
 	u32 revision_id:31;
 	u32 shadow_indicator:1;
 	u32 abort_indicator;
 	u64 data[(PAGE_SIZE - 4 - 4) / 8];
 } __attribute__((packed));
+#endif
+#ifdef ENABLE_SVM
+struct vmcb {
+	u8 data[PAGE_SIZE];
+} __attribute__((packed));
+#endif
 
 struct per_cpu {
 	/* Keep these two in sync with defines above! */
@@ -65,7 +74,9 @@ struct per_cpu {
 	unsigned long linux_sysenter_eip;
 	unsigned long linux_sysenter_esp;
 	bool initialized;
+#ifdef ENABLE_VMX
 	enum { VMXOFF = 0, VMXON, VMCS_READY } vmx_state;
+#endif
 
 	/*
 	 * protects the following per_cpu fields (unless CPU is stopped):
@@ -90,8 +101,15 @@ struct per_cpu {
 
 	unsigned int num_clear_apic_irqs;
 
+#ifdef ENABLE_VMX
 	struct vmcs vmxon_region __attribute__((aligned(PAGE_SIZE)));
 	struct vmcs vmcs __attribute__((aligned(PAGE_SIZE)));
+#endif
+#ifdef ENABLE_SVM
+	struct vmcb vmcb __attribute__((aligned(PAGE_SIZE)));
+	/* Host save area; opaque to us */
+	u8 host_state[PAGE_SIZE] __attribute__((aligned(PAGE_SIZE)));
+#endif
 } __attribute__((aligned(PAGE_SIZE)));
 
 static inline struct per_cpu *per_cpu(unsigned int cpu)
