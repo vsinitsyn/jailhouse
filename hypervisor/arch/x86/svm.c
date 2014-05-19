@@ -36,6 +36,10 @@ static int svm_check_features(void)
 	if (!(cpuid_edx(0x8000000A) & 0x07))
 		decode_assists = true;
 
+	/* TODO: Flush by ASID */
+
+	/* TODO: # of ASIDs */
+
 	/* TODO: Check for AVIC, set a flag if it is present somewhere */
 
 	return 0;
