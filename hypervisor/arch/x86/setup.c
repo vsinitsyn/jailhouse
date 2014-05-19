@@ -88,6 +88,10 @@ static void read_descriptor(struct per_cpu *cpu_data, struct segment *seg)
 	u64 *desc = (u64 *)(cpu_data->linux_gdtr.base +
 			    (seg->selector & 0xfff8));
 
+/*
+ * FIXME: These #ifdef doesn't belong here. We need a generic struct segment for x86
+ * (with 16-bit access rights) that is converted to VMX/SVM one in the vmx.c/svm.c.
+ */
 	if (desc[0] & DESC_PRESENT) {
 		seg->base = ((desc[0] >> 16) & 0xffffff) |
 			((desc[0] >> 32) & 0xff000000);
@@ -98,11 +102,21 @@ static void read_descriptor(struct per_cpu *cpu_data, struct segment *seg)
 		if (desc[0] & DESC_PAGE_GRAN)
 			seg->limit = (seg->limit << 12) | 0xfff;
 
+#ifdef ENABLE_VMX
 		seg->access_rights = (desc[0] >> 40) & 0xf0ff;
+#endif
+#ifdef ENABLE_SVM
+		seg->access_rights = ((desc[0] >> 44) & 0x0f00) | ((desc[0] >> 40) & 0xff);
+#endif
 	} else {
 		seg->base = 0;
 		seg->limit = 0;
+#ifdef ENABLE_VMX
 		seg->access_rights = 0x10000;
+#endif
+#ifdef ENABLE_SVM
+		seg->access_rights = 0;
+#endif
 	}
 }
 
