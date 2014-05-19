@@ -40,9 +40,7 @@ struct vmcs {
 } __attribute__((packed));
 #endif
 #ifdef ENABLE_SVM
-struct vmcb {
-	u8 data[PAGE_SIZE];
-} __attribute__((packed));
+#include <asm/svm.h> /* For struct vmcb */
 #endif
 
 struct per_cpu {
