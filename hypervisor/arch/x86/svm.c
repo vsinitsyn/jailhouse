@@ -165,7 +165,7 @@ void svm_cpu_park(void)
 	/* TODO: Implement */
 }
 
-void svm_tlb_flush_all(void)
+void svm_tlb_flush(void)
 {
 	/* TODO: Implement */
 }
