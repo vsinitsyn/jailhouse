@@ -13,6 +13,7 @@
  */
 
 #include <jailhouse/entry.h>
+#include <jailhouse/control.h>
 #include <jailhouse/paging.h>
 #include <jailhouse/processor.h>
 #include <jailhouse/paging.h>
@@ -192,34 +193,131 @@ int svm_init(void)
 		/* SVM disabled in BIOS */
 		return -EPERM;
 
-	/* TODO: Check for x2apic, modify the msr bitmap */
+	/* Nested paging is the same as the native one */
+	memcpy(npt_paging, x86_64_paging, sizeof(npt_paging));
 
-	return 0;
+	/* This is always false for AMD now (except in nested SVM);
+	   see Sect. 16.3.1 in APMv2 */
+	if (using_x2apic) {
+		/* allow direct x2APIC access except for ICR writes */
+		memset(msrpm[SVM_MSRPM_0000], 0, sizeof(msrpm[SVM_MSRPM_0000]));
+		msrpm[SVM_MSRPM_0000][0x830/4] = 0x02;
+	} else {
+		if (!has_avic) {
+			avic_page = page_alloc(&remap_pool, 1);
+			if (!avic_page)
+				return -ENOMEM;
+		}
+	}
+
+	return svm_cell_init(&root_cell);
 }
 
+/*
+ * TODO: This is an almost 100% copy of vmx_cell_init(), except for the
+ * has_avic branch, iopm copy loop condition and error_out. Refactor the common parts.
+ */
 int svm_cell_init(struct cell *cell)
 {
-	/* TODO: Implement */
+	struct jailhouse_cell_desc *config = cell->config;
+	const u8 *pio_bitmap = jailhouse_cell_pio_bitmap(config);
+	u32 pio_bitmap_size = config->pio_bitmap_size;
+	unsigned int n, pm_timer_addr;
+	int err;
+	u32 size;
+	u64 flags;
+	u8 *b;
+
+	/* PM timer has to be provided */
+	if (system_config->platform_info.x86.pm_timer_address == 0)
+		return -EINVAL;
+
+	/* build root NPT of cell */
+	cell->svm.npt_structs.root_paging = npt_paging;
+	cell->svm.npt_structs.root_table = page_alloc(&mem_pool, 1);
+	if (!cell->svm.npt_structs.root_table)
+		return -ENOMEM;
+
+	if (!has_avic) {
+		/* Map xAPIC as is; reads are passed, writes are trapped */
+		err = page_map_create(&cell->svm.npt_structs, XAPIC_BASE,
+				      PAGE_SIZE, XAPIC_BASE,
+				      PAGE_READONLY_FLAGS | PAGE_FLAG_UNCACHED,
+				      PAGE_MAP_NON_COHERENT);
+	} else {
+		err = page_map_create(&cell->svm.npt_structs,
+				      page_map_hvirt2phys(avic_page),
+				      PAGE_SIZE, XAPIC_BASE,
+				      PAGE_DEFAULT_FLAGS | PAGE_FLAG_UNCACHED,
+				      PAGE_MAP_NON_COHERENT);
+	}
+
+	if (err) {
+		svm_cell_exit(cell);
+		return err;
+	}
+
+	memset(cell->svm.iopm, -1, sizeof(cell->svm.iopm));
+
+	for (n = 0; n < 3; n++) {
+		size = pio_bitmap_size <= PAGE_SIZE ?
+			pio_bitmap_size : PAGE_SIZE;
+		memcpy(cell->svm.iopm + n * PAGE_SIZE, pio_bitmap, size);
+		pio_bitmap += size;
+		pio_bitmap_size -= size;
+	}
+
+	if (cell != &root_cell) {
+		/*
+		 * Shrink PIO access of root cell corresponding to new cell's
+		 * access rights.
+		 */
+		pio_bitmap = jailhouse_cell_pio_bitmap(cell->config);
+		pio_bitmap_size = cell->config->pio_bitmap_size;
+		for (b = root_cell.svm.iopm; pio_bitmap_size > 0;
+				b++, pio_bitmap++, pio_bitmap_size--)
+			*b |= ~*pio_bitmap;
+	}
+
+	/* permit access to the PM timer */
+	pm_timer_addr = system_config->platform_info.x86.pm_timer_address;
+	for (n = 0; n < 4; n++, pm_timer_addr++) {
+		b = cell->svm.iopm;
+		b[pm_timer_addr / 8] &= ~(1 << (pm_timer_addr % 8));
+	}
+
 	return 0;
 }
 
-void svm_root_cell_shrink(struct jailhouse_cell_desc *config)
-{
-	/* TODO: Implement */
-}
+/*
+ * TODO: These two functions are almost 100% copy of their vmx counterparts
+ * (sans page flags). Refactor them.
+ */
 
 int svm_map_memory_region(struct cell *cell,
 			  const struct jailhouse_memory *mem)
 {
-	/* TODO: Implement */
-	return 0;
+	u64 phys_start = mem->phys_start;
+	u32 flags = 0;
+
+	if (mem->flags & JAILHOUSE_MEM_READ)
+		flags |= PAGE_FLAG_PRESENT;
+	if (mem->flags & JAILHOUSE_MEM_WRITE)
+		flags |= PAGE_FLAG_RW;
+	if (mem->flags & JAILHOUSE_MEM_EXECUTE)
+		flags |= PAGE_FLAG_EXECUTE;
+	if (mem->flags & JAILHOUSE_MEM_COMM_REGION)
+		phys_start = page_map_hvirt2phys(&cell->comm_page);
+
+	return page_map_create(&cell->svm.npt_structs, phys_start, mem->size,
+			       mem->virt_start, flags, PAGE_MAP_NON_COHERENT);
 }
 
 int svm_unmap_memory_region(struct cell *cell,
 			    const struct jailhouse_memory *mem)
 {
-	/* TODO: Implement */
-	return 0;
+	return page_map_destroy(&cell->svm.npt_structs, mem->virt_start,
+				mem->size, PAGE_MAP_NON_COHERENT);
 }
 
 void svm_cell_exit(struct cell *cell)
