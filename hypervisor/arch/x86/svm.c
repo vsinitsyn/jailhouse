@@ -379,6 +379,7 @@ void svm_cpu_activate_vmm(struct per_cpu *cpu_data)
 void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 {
 	/* TODO: Implement */
+	/* TODO: Need trap efer access to prevent SVME change; see Sect. 3.1.7 */
 }
 
 void svm_entry_failure(struct per_cpu *cpu_data)
