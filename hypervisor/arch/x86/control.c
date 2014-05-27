@@ -225,7 +225,7 @@ int x86_handle_events(struct per_cpu *cpu_data)
 	if (cpu_data->flush_caches) {
 		cpu_data->flush_caches = false;
 		x86_tlb_flush_all();
-		vm_tlb_flush();
+		vm_tlb_flush(cpu_data);
 	}
 
 	spin_unlock(&cpu_data->control_lock);
