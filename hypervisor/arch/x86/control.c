@@ -97,7 +97,7 @@ void arch_config_commit(struct per_cpu *cpu_data,
 				    cpu_data->cpu_id)
 			per_cpu(cpu)->flush_virt_caches = true;
 
-	vm_tlb_flush();
+	vm_tlb_flush(cpu_data);
 
 	iommu_config_commit(cell_added_removed);
 }
@@ -237,7 +237,7 @@ int x86_handle_events(struct per_cpu *cpu_data)
 
 	if (cpu_data->flush_virt_caches) {
 		cpu_data->flush_virt_caches = false;
-		vm_tlb_flush();
+		vm_tlb_flush(cpu_data);
 	}
 
 	spin_unlock(&cpu_data->control_lock);

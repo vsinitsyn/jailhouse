@@ -22,7 +22,7 @@
 #define vm_cpu_exit			vmx_cpu_exit
 
 #define vm_cpu_activate_vmm		vmx_cpu_activate_vmm
-#define vm_tlb_flush			vmx_invept
+#define vm_tlb_flush			vmx_tlb_flush
 
 #define vm_cpu_park			vmx_cpu_park
 

@@ -284,6 +284,6 @@ void svm_entry_failure(struct per_cpu *cpu_data);
 
 void svm_cpu_park(struct per_cpu *cpu_data);
 
-void svm_tlb_flush(void);
+void svm_tlb_flush(struct per_cpu *cpu_data);
 
 #endif
