@@ -169,7 +169,7 @@ void svm_cpu_park(struct per_cpu *cpu_data)
 	/* TODO: Implement */
 }
 
-void svm_tlb_flush(void)
+void svm_tlb_flush(struct per_cpu *cpu_data)
 {
 	/* TODO: Implement */
 }
