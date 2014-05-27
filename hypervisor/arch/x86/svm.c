@@ -388,5 +388,12 @@ void svm_cpu_park(struct per_cpu *cpu_data)
 
 void svm_tlb_flush(struct per_cpu *cpu_data)
 {
-	/* TODO: Implement */
+	struct vmcb *vmcb = &cpu_data->vmcb;
+
+	if (cpuid_edx(0x8000000A) & 0x60) {
+		/* FIXME: Use symbolic names */
+		vmcb->tlb_control = 0x03;
+	} else {
+		vmcb->tlb_control = 0x01;
+	}
 }
