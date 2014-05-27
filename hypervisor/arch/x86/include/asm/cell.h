@@ -13,6 +13,8 @@
 #ifndef _JAILHOUSE_ASM_CELL_H
 #define _JAILHOUSE_ASM_CELL_H
 
+#include <jailhouse/config.h>
+
 #include <jailhouse/paging.h>
 
 #include <jailhouse/cell-config.h>
@@ -28,6 +30,7 @@ struct pci_device;
  */
 /* TODO: factor out arch-independent bits, define struct arch_cell */
 struct cell {
+#ifdef ENABLE_VMX
 	struct {
 		/* should be first as it requires page alignment */
 		u8 __attribute__((aligned(PAGE_SIZE))) io_bitmap[2*PAGE_SIZE];
@@ -38,6 +41,15 @@ struct cell {
 		struct paging_structures pg_structs;
 		bool ir_emulation;
 	} vtd;
+#endif
+
+#ifdef ENABLE_SVM
+	struct {
+		/* should be first as it requires page alignment */
+		u8 __attribute__((aligned(PAGE_SIZE))) iopm[3*PAGE_SIZE];
+		struct paging_structures npt_structs;
+	} svm;
+#endif
 
 	unsigned int id;
 	unsigned int data_pages;
