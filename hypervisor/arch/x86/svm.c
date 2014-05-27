@@ -179,8 +179,7 @@ unsigned long arch_page_map_gphys2phys(struct per_cpu *cpu_data,
 				       unsigned long gphys,
 				       unsigned long flags)
 {
-	/* TODO: Implement */
-	return page_map_virt2phys(/* Nested paging struct */ NULL, gphys, flags);
+	return page_map_virt2phys(&cpu_data->cell->svm.npt_structs, gphys, flags);
 }
 
 int svm_init(void)
