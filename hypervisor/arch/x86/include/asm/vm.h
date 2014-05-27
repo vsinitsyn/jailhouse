@@ -11,7 +11,6 @@
 #define vm_init				vmx_init
 
 #define vm_cell_init			vmx_cell_init
-#define vm_root_cell_shrink		vmx_root_cell_shrink
 
 #define vm_map_memory_region		vmx_map_memory_region
 #define vm_unmap_memory_region		vmx_unmap_memory_region
@@ -62,7 +61,6 @@
 #define vm_init				svm_init
 
 #define vm_cell_init			svm_cell_init
-#define vm_root_cell_shrink		svm_root_cell_shrink
 
 #define vm_map_memory_region		svm_map_memory_region
 #define vm_unmap_memory_region		svm_unmap_memory_region
@@ -82,7 +80,6 @@
 #define iommu_init			amd_iommu_init
 
 #define iommu_cell_init			amd_iommu_cell_init
-#define iommu_root_cell_shrink		amd_iommu_root_cell_shrink
 #define iommu_map_memory_region		amd_iommu_map_memory_region
 #define iommu_unmap_memory_region	amd_iommu_unmap_memory_region
 #define iommu_add_pci_device		amd_iommu_add_pci_device
