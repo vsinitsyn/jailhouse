@@ -372,7 +372,7 @@ void vmx_cell_exit(struct cell *cell)
 	page_free(&mem_pool, cell->vmx.ept_structs.root_table, 1);
 }
 
-void vmx_invept(void)
+static void vmx_invept(void)
 {
 	unsigned long ept_cap = read_msr(MSR_IA32_VMX_EPT_VPID_CAP);
 	struct {
@@ -402,6 +402,12 @@ void vmx_invept(void)
 			     vmcs_read32(VM_INSTRUCTION_ERROR));
 		panic_stop();
 	}
+}
+
+/* To make prototype compatible with svm_tlb_flush() */
+void vmx_tlb_flush(struct per_cpu *cpu_data __attribute__((unused)))
+{
+	vmx_invept();
 }
 
 static bool vmx_set_guest_cr(int cr, unsigned long val)
