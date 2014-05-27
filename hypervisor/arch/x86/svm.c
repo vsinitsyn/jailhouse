@@ -175,8 +175,7 @@ static int vmcb_setup(struct per_cpu *cpu_data)
 unsigned long arch_page_map_gphys2phys(struct per_cpu *cpu_data,
 				       unsigned long gphys)
 {
-	/* TODO: Implement */
-	return page_map_virt2phys(/* Nested paging struct */ NULL, gphys);
+	return page_map_virt2phys(&cpu_data->cell->svm.npt_structs, gphys);
 }
 
 int svm_init(void)
