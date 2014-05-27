@@ -33,7 +33,7 @@ static int svm_check_features(void)
 		return -EIO;
 
 	/* Decode assists */
-	if (!(cpuid_edx(0x8000000A) & 0x07))
+	if (cpuid_edx(0x8000000A) & 0x07)
 		decode_assists = true;
 
 	/* TODO: Flush by ASID */
