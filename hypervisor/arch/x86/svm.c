@@ -12,19 +12,26 @@
  * the COPYING file in the top-level directory.
  */
 
+#include <jailhouse/control.h>
 #include <jailhouse/entry.h>
 #include <jailhouse/paging.h>
+#include <jailhouse/printk.h>
 #include <jailhouse/processor.h>
 #include <jailhouse/paging.h>
 #include <jailhouse/string.h>
 
 #include <asm/apic.h>
+#include <asm/amd_iommu.h>
 #include <asm/atomic.h>
+#include <asm/control.h>
 #include <asm/paging.h>
+#include <asm/pci.h>
 #include <asm/percpu.h>
 #include <asm/svm.h>
 
-bool decode_assists = false, has_avic = false;
+#define SVM_CR0_CLEARED_BITS	(~(X86_CR0_CD | X86_CR0_NW))
+
+bool has_avic = false;
 
 static u32 current_asid = 1; /* ASID 0 is for host mode */
 
@@ -81,9 +88,10 @@ static int svm_check_features(void)
 		return -EIO;
 
 	/* Decode assists */
-	if (cpuid_edx(0x8000000A) & 0x07)
-		decode_assists = true;
+	if (!(cpuid_edx(0x8000000A) & 0x07))
+		return -EIO;
 
+	/* AVIC support */
 	if (cpuid_edx(0x8000000A) & 0x2000)
 		has_avic = true;
 
@@ -120,7 +128,7 @@ static int vmcb_setup(struct per_cpu *cpu_data)
 
 	memset(vmcb, sizeof(struct vmcb), 0);
 
-	vmcb->cr0 = read_cr0() & ~(X86_CR0_CD | X86_CR0_NW);
+	vmcb->cr0 = read_cr0() & SVM_CR0_CLEARED_BITS;
 	vmcb->cr3 = read_cr3();
 	vmcb->cr4 = read_cr4();
 
@@ -356,10 +364,341 @@ void svm_cpu_activate_vmm(struct per_cpu *cpu_data)
 	__builtin_unreachable();
 }
 
-void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
+static void __attribute__((noreturn))
+svm_cpu_deactivate_vmm(struct registers *guest_regs, struct per_cpu *cpu_data)
 {
 	/* TODO: Implement */
-	/* TODO: Need trap efer access to prevent SVME change; see Sect. 3.1.7 */
+	__builtin_unreachable();
+}
+
+static void svm_cpu_reset(struct registers *guest_regs,
+			  struct per_cpu *cpu_data, unsigned int sipi_vector)
+{
+	/* TODO: Implement */
+}
+
+static void svm_skip_emulated_instruction(unsigned int inst_len, struct vmcb *vmcb)
+{
+	vmcb->rip += inst_len;
+}
+
+static void update_efer(struct vmcb *vmcb)
+{
+	unsigned long efer = vmcb->efer;
+
+	if ((efer & (EFER_LME | EFER_LMA)) != EFER_LME)
+		return;
+
+	efer |= EFER_LMA;
+
+	vmcb->efer = efer;
+}
+
+/*
+ * TODO: This is almost a complete copy of vmx_handle_hypercall (sans vmcb access).
+ * Refactor common parts.
+ */
+static void svm_handle_hypercall(struct registers *guest_regs,
+				 struct per_cpu *cpu_data)
+{
+	struct vmcb *vmcb = &cpu_data->vmcb;
+
+	svm_skip_emulated_instruction(X86_INST_LEN_VMCALL, vmcb);
+
+	if ((!(vmcb->efer & EFER_LMA) &&
+	      vmcb->rflags & X86_RFLAGS_VM) ||
+	     (vmcb->cs.selector & 3) != 0) {
+		guest_regs->rax = -EPERM;
+		return;
+	}
+
+	switch (guest_regs->rax) {
+		case JAILHOUSE_HC_DISABLE:
+			guest_regs->rax = shutdown(cpu_data);
+			if (guest_regs->rax == 0)
+				svm_cpu_deactivate_vmm(guest_regs, cpu_data);
+			break;
+		case JAILHOUSE_HC_CELL_CREATE:
+			guest_regs->rax = cell_create(cpu_data, guest_regs->rdi);
+			break;
+		case JAILHOUSE_HC_CELL_DESTROY:
+			guest_regs->rax = cell_destroy(cpu_data, guest_regs->rdi);
+			break;
+		case JAILHOUSE_HC_HYPERVISOR_GET_INFO:
+			guest_regs->rax = hypervisor_get_info(cpu_data,
+					guest_regs->rdi);
+			break;
+		case JAILHOUSE_HC_CELL_GET_STATE:
+			guest_regs->rax = cell_get_state(cpu_data, guest_regs->rdi);
+			break;
+		case JAILHOUSE_HC_CPU_GET_STATE:
+			guest_regs->rax = cpu_get_state(cpu_data, guest_regs->rdi);
+			break;
+		default:
+			printk("CPU %d: Unknown vmcall %d, RIP: %p\n",
+					cpu_data->cpu_id, guest_regs->rax,
+					vmcb->rip - X86_INST_LEN_VMCALL);
+			guest_regs->rax = -ENOSYS;
+			break;
+	}
+}
+
+static bool svm_handle_cr(struct registers *guest_regs,
+			  struct per_cpu *cpu_data)
+{
+	struct vmcb *vmcb = &cpu_data->vmcb;
+	unsigned long reg, val;
+
+	if (!(vmcb->exitinfo1 & (1UL << 63))) {
+		panic_printk("FATAL: Unsupported CR access (LMSW or CLTS)\n");
+		return false;
+	}
+
+	reg = vmcb->exitinfo1 & 0x07;
+
+	if (reg == 4)
+		val = vmcb->rsp;
+	else
+		val = ((unsigned long *)guest_regs)[15 - reg];
+
+	svm_skip_emulated_instruction(X86_INST_LEN_MOV_TO_CR, vmcb);
+	/* TODO: better check for #GP reasons */
+	vmcb->cr0 = val & SVM_CR0_CLEARED_BITS;
+	if (val & X86_CR0_PG)
+		update_efer(vmcb);
+
+	return true;
+}
+
+static bool svm_handle_msr_read(struct registers *guest_regs, struct per_cpu *cpu_data)
+{
+	svm_skip_emulated_instruction(X86_INST_LEN_RDMSR, &cpu_data->vmcb);
+
+	if (guest_regs->rcx >= MSR_X2APIC_BASE &&
+	    guest_regs->rcx <= MSR_X2APIC_END) {
+		x2apic_handle_read(guest_regs);
+		return true;
+	} else {
+		panic_printk("FATAL: Unhandled MSR read: %08x\n",
+				guest_regs->rcx);
+		return false;
+	}
+}
+
+static bool svm_handle_msr_write(struct registers *guest_regs, struct per_cpu *cpu_data)
+{
+	struct vmcb *vmcb = &cpu_data->vmcb;
+
+	svm_skip_emulated_instruction(X86_INST_LEN_WRMSR, vmcb);
+
+	if (guest_regs->rcx == MSR_X2APIC_ICR) {
+		return apic_handle_icr_write(cpu_data,
+				guest_regs->rax, guest_regs->rdx);
+	}
+	if (guest_regs->rcx >= MSR_X2APIC_BASE &&
+	    guest_regs->rcx <= MSR_X2APIC_END) {
+		x2apic_handle_write(guest_regs);
+		return true;
+	}
+	if (guest_regs->rcx == MSR_EFER &&
+	    !(vmcb->rax & EFER_SVME)) {
+		panic_printk("Ignoring guest attempt to clear SVME\n");
+		/* TODO: Maybe simple inject #GP or similar into the guest? */
+		return false;
+	}
+
+	panic_printk("FATAL: Unhandled MSR write: %08x\n",
+			guest_regs->rcx);
+	return false;
+}
+
+static bool
+svm_get_guest_paging_structs(struct guest_paging_structures *pg_structs, struct vmcb *vmcb)
+{
+	if (vmcb->efer & EFER_LMA) {
+		pg_structs->root_paging = x86_64_paging;
+		pg_structs->root_table_gphys =
+			vmcb->cr3 & 0x000ffffffffff000UL;
+	} else if ((vmcb->cr0 & X86_CR0_PG) &&
+		   !(vmcb->cr4 & X86_CR4_PAE)) {
+		pg_structs->root_paging = i386_paging;
+		pg_structs->root_table_gphys =
+			vmcb->cr3 & 0xfffff000UL;
+	} else {
+		printk("FATAL: Unsupported paging mode\n");
+		return false;
+	}
+	return true;
+}
+
+/*
+ * TODO: This handles unaccelerated (non-AVIC) access. AVIC should
+ * be treated separately in svm_handle_avic_access().
+ */
+static bool svm_handle_apic_access(struct registers *guest_regs,
+				   struct per_cpu *cpu_data)
+{
+	struct vmcb *vmcb = &cpu_data->vmcb;
+	struct guest_paging_structures pg_structs;
+	unsigned int inst_len, offset;
+	bool is_write;
+
+	/* The caller is responsible for sanity checks */
+	is_write = !!(vmcb->exitinfo1 & 0x2);
+	offset = vmcb->exitinfo2 - XAPIC_BASE;
+
+	if (offset & 0x00f)
+		goto out_err;
+
+	/*
+         * TODO: Need an abstraction layer for mmio_parse() to use
+	 * vmcb->guest_bytes instead of the page table walk when 
+	 * vmcb->bytes_fetched is non-zero and vmcb->exitcode == VMEXIT_NPF.
+	 */
+	if (!svm_get_guest_paging_structs(&pg_structs, vmcb))
+		goto out_err;
+
+	inst_len = apic_mmio_access(guest_regs, cpu_data,
+			vmcb->rip,
+			&pg_structs, offset >> 4,
+			is_write);
+	if (!inst_len)
+		return false;
+
+	svm_skip_emulated_instruction(inst_len, vmcb);
+	return true;
+
+out_err:
+	panic_printk("FATAL: Unhandled APIC access, "
+			"offset %d, is_write: %d\n", offset, is_write);
+	return false;
+}
+
+/*
+ * TODO: This is almost a complete copy of vmx_handle_io_access (sans vmcb access).
+ * Refactor common parts.
+ */
+static bool svm_handle_io_access(struct registers *guest_regs,
+				 struct per_cpu *cpu_data)
+{
+	struct vmcb *vmcb = &cpu_data->vmcb;
+
+	/* parse exit info for I/O instructions (see APM, 15.10.2 ) */
+	u64 exitinfo = vmcb->exitinfo1;
+	u16 port = (exitinfo >> 16) & 0xFFFF;
+	bool dir_in = exitinfo & 0x1;
+	unsigned int size = (exitinfo >> 4) & 0x7;
+
+	/* Skip the port access instruction */
+	vmcb->rip = vmcb->exitinfo2;
+
+	/* string and REP-prefixed instructions are not supported */
+	if (exitinfo & 0x0a)
+		return false;
+
+	if (x86_pci_config_handler(guest_regs, cpu_data->cell, port, dir_in,
+				   size) == 1)
+		return true;
+
+	panic_printk("FATAL: Invalid PIO %s, port: %x size: %d\n",
+		     dir_in ? "read" : "write", port, size);
+	panic_printk("PCI address port: %x\n",
+		     cpu_data->cell->pci_addr_port_val);
+	return false;
+}
+
+static void dump_guest_regs(struct registers *guest_regs, struct vmcb *vmcb)
+{
+	panic_printk("RIP: %p RSP: %p FLAGS: %x\n", vmcb->rip,
+		     vmcb->rsp, vmcb->rflags);
+	panic_printk("RAX: %p RBX: %p RCX: %p\n", vmcb->rax,
+		     guest_regs->rbx, guest_regs->rcx);
+	panic_printk("RDX: %p RSI: %p RDI: %p\n", guest_regs->rdx,
+		     guest_regs->rsi, guest_regs->rdi);
+	panic_printk("CS: %x BASE: %p AR-BYTES: %x EFER.LMA %d\n",
+		     vmcb->cs.selector,
+		     vmcb->cs.base,
+		     vmcb->cs.access_rights,
+		     (vmcb->efer & EFER_LMA));
+	panic_printk("CR0: %p CR3: %p CR4: %p\n", vmcb->cr0,
+		     vmcb->cr3, vmcb->cr4);
+	panic_printk("EFER: %p\n", vmcb->efer);
+}
+
+void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
+{
+	struct vmcb *vmcb = &cpu_data->vmcb;
+	int sipi_vector;
+	bool res = false;
+
+	switch (vmcb->exitcode) {
+		case VMEXIT_INVALID:
+			panic_printk("FATAL: VM-Entry failure\n");
+			dump_guest_regs(guest_regs, vmcb);
+			panic_stop(cpu_data);
+			return;
+		case VMEXIT_NMI:
+			sipi_vector = x86_handle_events(cpu_data);
+			if (sipi_vector >= 0) {
+				printk("CPU %d received SIPI, vector %x\n",
+						cpu_data->cpu_id, sipi_vector);
+				svm_cpu_reset(guest_regs, cpu_data, sipi_vector);
+			}
+			amd_iommu_check_pending_faults(cpu_data);
+			return;
+		case VMEXIT_CPUID:
+			/* FIXME: We are not intercepting CPUID now */
+			return;
+		case VMEXIT_VMMCALL:
+			svm_handle_hypercall(guest_regs, cpu_data);
+			return;
+		case VMEXIT_CR0_WRITE:
+			if (svm_handle_cr(guest_regs, cpu_data))
+				return;
+			break;
+		case VMEXIT_MSR:
+			if (!vmcb->exitinfo1)
+				res = svm_handle_msr_read(guest_regs, cpu_data);
+			else
+				res = svm_handle_msr_write(guest_regs, cpu_data);
+			if (res)
+				return;
+			break;
+		case VMEXIT_NPF:
+			/* Detect APIC access in non-AVIC mode */
+			if (!has_avic &&
+			    (vmcb->exitinfo1 & 0x7) == 0x7 &&
+			    vmcb->exitinfo2 >= XAPIC_BASE &&
+			    vmcb->exitinfo2 < XAPIC_BASE + PAGE_SIZE)
+				if (svm_handle_apic_access(guest_regs, cpu_data))
+					return;
+			panic_printk("FATAL: Unhandled Nested Page Fault for (%p), "
+					"error code is %04x", vmcb->exitinfo2,
+					vmcb->exitinfo1 & 0xf);
+			break;
+		case VMEXIT_XSETBV:
+			/* TODO: This is very much like vmx_handle_exit() code. Refactor common parts */
+			svm_skip_emulated_instruction(X86_INST_LEN_XSETBV, vmcb);
+			if (guest_regs->rax & X86_XCR0_FP &&
+			    (guest_regs->rax & ~cpuid_eax(0x0d)) == 0 &&
+			    guest_regs->rcx == 0 && guest_regs->rdx == 0) {
+				asm volatile(
+					"xsetbv"
+					: /* no output */
+					: "a" (guest_regs->rax), "c" (0), "d" (0));
+				return;
+			}
+			panic_printk("FATAL: Invalid xsetbv parameters: "
+					"xcr[%d] = %08x:%08x\n", guest_regs->rcx,
+					guest_regs->rdx, guest_regs->rax);
+			break;
+		case VMEXIT_IOIO:
+			if (svm_handle_io_access(guest_regs, cpu_data))
+				return;
+			break;
+	}
+	dump_guest_regs(guest_regs, vmcb);
+	panic_halt(cpu_data);
 }
 
 void svm_entry_failure(struct per_cpu *cpu_data)

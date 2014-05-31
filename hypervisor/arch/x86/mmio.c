@@ -13,6 +13,7 @@
 #include <jailhouse/mmio.h>
 #include <jailhouse/paging.h>
 #include <jailhouse/printk.h>
+#include <jailhouse/string.h>
 
 struct modrm {
 	u8 rm:3;
