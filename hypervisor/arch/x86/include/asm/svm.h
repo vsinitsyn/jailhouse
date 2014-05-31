@@ -233,6 +233,7 @@ enum vm_exit_code {
 	VMEXIT_MONITOR			= 138,
 	VMEXIT_MWAIT			= 139,
 	VMEXIT_MWAIT_CONDITIONAL	= 140,
+	VMEXIT_XSETBV                   = 141,
 	VMEXIT_NPF			= 1024, /* nested paging fault */
 	VMEXIT_INVALID			=  -1
 };
@@ -274,7 +275,9 @@ struct vmcb {
 	lbrctrl_t lbr_control;		/* offset 0xB8 */
 	u64 res09;			/* offset 0xC0 */
 	u64 nextrip;			/* offset 0xC8 */
-	u64 res10a[102];		/* offset 0xD0 pad to save area */
+	u8 guest_bytes[15];             /* offset 0xD0 */
+	u8 bytes_fetched;
+	u64 res10a[100];		/* offset 0xE0 pad to save area */
 
 	struct segment es;		/* offset 1024 */
 	struct segment cs;
