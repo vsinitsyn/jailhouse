@@ -302,7 +302,8 @@ void vmx_root_cell_shrink(struct jailhouse_cell_desc *config)
 	     b++, pio_bitmap++, pio_bitmap_size--)
 		*b |= ~*pio_bitmap;
 
-	vmx_invept();
+	/* It's a hack, but we know it is unused */
+	vmx_invept(NULL);
 }
 
 int vmx_map_memory_region(struct cell *cell,
@@ -353,7 +354,7 @@ void vmx_cell_exit(struct cell *cell)
 	page_free(&mem_pool, cell->vmx.ept_structs.root_table, 1);
 }
 
-void vmx_invept(void)
+void vmx_invept(struct per_cpu *cpu_data __attribute__((unused)))
 {
 	unsigned long ept_cap = read_msr(MSR_IA32_VMX_EPT_VPID_CAP);
 	struct {
