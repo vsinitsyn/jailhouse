@@ -484,37 +484,37 @@ static void svm_handle_hypercall(struct registers *guest_regs,
 	if ((!(vmcb->efer & EFER_LMA) &&
 	      vmcb->rflags & X86_RFLAGS_VM) ||
 	     (vmcb->cs.selector & 3) != 0) {
-		guest_regs->rax = -EPERM;
+		vmcb->rax = -EPERM;
 		return;
 	}
 
-	switch (guest_regs->rax) {
+	switch (vmcb->rax) {
 		case JAILHOUSE_HC_DISABLE:
-			guest_regs->rax = shutdown(cpu_data);
-			if (guest_regs->rax == 0)
+			vmcb->rax = shutdown(cpu_data);
+			if (vmcb->rax == 0)
 				svm_cpu_deactivate_vmm(guest_regs, cpu_data);
 			break;
 		case JAILHOUSE_HC_CELL_CREATE:
-			guest_regs->rax = cell_create(cpu_data, guest_regs->rdi);
+			vmcb->rax = cell_create(cpu_data, guest_regs->rdi);
 			break;
 		case JAILHOUSE_HC_CELL_DESTROY:
-			guest_regs->rax = cell_destroy(cpu_data, guest_regs->rdi);
+			vmcb->rax = cell_destroy(cpu_data, guest_regs->rdi);
 			break;
 		case JAILHOUSE_HC_HYPERVISOR_GET_INFO:
-			guest_regs->rax = hypervisor_get_info(cpu_data,
+			vmcb->rax = hypervisor_get_info(cpu_data,
 					guest_regs->rdi);
 			break;
 		case JAILHOUSE_HC_CELL_GET_STATE:
-			guest_regs->rax = cell_get_state(cpu_data, guest_regs->rdi);
+			vmcb->rax = cell_get_state(cpu_data, guest_regs->rdi);
 			break;
 		case JAILHOUSE_HC_CPU_GET_STATE:
-			guest_regs->rax = cpu_get_state(cpu_data, guest_regs->rdi);
+			vmcb->rax = cpu_get_state(cpu_data, guest_regs->rdi);
 			break;
 		default:
 			printk("CPU %d: Unknown vmcall %d, RIP: %p\n",
-					cpu_data->cpu_id, guest_regs->rax,
+					cpu_data->cpu_id, vmcb->rax,
 					vmcb->rip - X86_INST_LEN_VMCALL);
-			guest_regs->rax = -ENOSYS;
+			vmcb->rax = -ENOSYS;
 			break;
 	}
 }
@@ -569,7 +569,7 @@ static bool svm_handle_msr_write(struct registers *guest_regs, struct per_cpu *c
 
 	if (guest_regs->rcx == MSR_X2APIC_ICR) {
 		return apic_handle_icr_write(cpu_data,
-				guest_regs->rax, guest_regs->rdx);
+				vmcb->rax, guest_regs->rdx);
 	}
 	if (guest_regs->rcx >= MSR_X2APIC_BASE &&
 	    guest_regs->rcx <= MSR_X2APIC_END) {
@@ -755,18 +755,18 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 		case VMEXIT_XSETBV:
 			/* TODO: This is very much like vmx_handle_exit() code. Refactor common parts */
 			svm_skip_emulated_instruction(X86_INST_LEN_XSETBV, vmcb);
-			if (guest_regs->rax & X86_XCR0_FP &&
-			    (guest_regs->rax & ~cpuid_eax(0x0d)) == 0 &&
+			if (vmcb->rax & X86_XCR0_FP &&
+			    (vmcb->rax & ~cpuid_eax(0x0d)) == 0 &&
 			    guest_regs->rcx == 0 && guest_regs->rdx == 0) {
 				asm volatile(
 					"xsetbv"
 					: /* no output */
-					: "a" (guest_regs->rax), "c" (0), "d" (0));
+					: "a" (vmcb->rax), "c" (0), "d" (0));
 				return;
 			}
 			panic_printk("FATAL: Invalid xsetbv parameters: "
 					"xcr[%d] = %08x:%08x\n", guest_regs->rcx,
-					guest_regs->rdx, guest_regs->rax);
+					guest_regs->rdx, vmcb->rax);
 			break;
 		case VMEXIT_IOIO:
 			if (svm_handle_io_access(guest_regs, cpu_data))
