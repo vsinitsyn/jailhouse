@@ -27,6 +27,9 @@
 #define PERCPU_SIZE_SHIFT		14
 #define PERCPU_STACK_END		PAGE_SIZE
 #define PERCPU_LINUX_SP			PERCPU_STACK_END
+#ifdef ENABLE_SVM
+#define PERCPU_VMCB_OFFSET		8192 /* offsetof(struct per_cpu, vmcb) */
+#endif
 
 #ifndef __ASSEMBLY__
 
