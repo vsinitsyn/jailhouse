@@ -502,7 +502,7 @@ static void svm_handle_hypercall(struct registers *guest_regs,
 	if ((!(vmcb->efer & EFER_LMA) &&
 	      vmcb->rflags & X86_RFLAGS_VM) ||
 	     (vmcb->cs.selector & 3) != 0) {
-		guest_regs->rax = -EPERM;
+		vmcb->rax = -EPERM;
 		return;
 	}
 
@@ -566,7 +566,7 @@ static bool svm_handle_msr_write(struct registers *guest_regs, struct per_cpu *c
 
 	if (guest_regs->rcx == MSR_X2APIC_ICR) {
 		result = apic_handle_icr_write(cpu_data,
-				guest_regs->rax, guest_regs->rdx);
+				vmcb->rax, guest_regs->rdx);
 		goto out;
 	}
 	if (guest_regs->rcx >= MSR_X2APIC_BASE &&
@@ -819,19 +819,19 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 			/* TODO: This is very much like vmx_handle_exit() code.
 			   Refactor common parts */
 			cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_XSETBV]++;
-			if (guest_regs->rax & X86_XCR0_FP &&
-			    (guest_regs->rax & ~cpuid_eax(0x0d)) == 0 &&
+			if (vmcb->rax & X86_XCR0_FP &&
+			    (vmcb->rax & ~cpuid_eax(0x0d)) == 0 &&
 			    guest_regs->rcx == 0 && guest_regs->rdx == 0) {
 				svm_skip_emulated_instruction(X86_INST_LEN_XSETBV, vmcb);
 				asm volatile(
 					"xsetbv"
 					: /* no output */
-					: "a" (guest_regs->rax), "c" (0), "d" (0));
+					: "a" (vmcb->rax), "c" (0), "d" (0));
 				return;
 			}
 			panic_printk("FATAL: Invalid xsetbv parameters: "
 					"xcr[%d] = %08x:%08x\n", guest_regs->rcx,
-					guest_regs->rdx, guest_regs->rax);
+					guest_regs->rdx, vmcb->rax);
 			break;
 		case VMEXIT_IOIO:
 			cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_PIO]++;
