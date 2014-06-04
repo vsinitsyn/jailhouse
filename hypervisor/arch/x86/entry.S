@@ -139,8 +139,8 @@ irq_entry:
 	interrupt_entry apic_irq_handler
 
 
-#ifdef ENABLE_VMX
 /* VM-exit handling */
+#ifdef ENABLE_VMX
 	.globl vm_exit
 vm_exit:
 	push %rax
@@ -185,4 +185,55 @@ vm_exit:
 
 	lea -PERCPU_STACK_END(%rsp),%rdi
 	jmp vmx_entry_failure
+#endif
+#ifdef ENABLE_SVM
+	.globl vm_exit
+vm_exit:
+	/* XXX: GIF is always cleared here */
+	sub $8,%rsp /* placeholder for rax */
+	push %rcx
+	push %rdx
+	push %rbx
+	sub $8,%rsp /* placeholder for rsp */
+	push %rbp
+	push %rsi
+	push %rdi
+	push %r8
+	push %r9
+	push %r10
+	push %r11
+	push %r12
+	push %r13
+	push %r14
+	push %r15
+
+	mov %rsp,%rdi
+	lea -PERCPU_STACK_END+16*8(%rsp),%rsi
+	call svm_handle_exit
+
+	pop %r15
+	pop %r14
+	pop %r13
+	pop %r12
+	pop %r11
+	pop %r10
+	pop %r9
+	pop %r8
+	pop %rdi
+	pop %rsi
+	pop %rbp
+	add $8,%rsp
+	pop %rbx
+	pop %rdx
+	pop %rcx
+	add $8,%rsp
+
+	push %rax
+	mov -PERCPU_STACK_END+1*8+PERCPU_VMCB_OFFSET(%rsp), %rax
+	vmload
+	vmrun
+	vmsave
+	pop %rax
+
+	jmp vm_exit
 #endif

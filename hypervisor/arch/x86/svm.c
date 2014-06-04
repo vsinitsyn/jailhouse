@@ -154,6 +154,8 @@ static int vmcb_setup(struct per_cpu *cpu_data)
 	vmcb->cpl = 0; /* Linux runs in ring 0 before migration */
 
 	vmcb->rflags = 0x02;
+	/* Indicate success to the caller of arch_entry */
+	vmcb->rax = 0;
 	vmcb->rsp = cpu_data->linux_sp +
 		(NUM_ENTRY_REGS + 1) * sizeof(unsigned long);
 	vmcb->rip = cpu_data->linux_ip;
@@ -383,7 +385,28 @@ void svm_cpu_exit(struct per_cpu *cpu_data)
 
 void svm_cpu_activate_vmm(struct per_cpu *cpu_data)
 {
-	/* TODO: Implement */
+	/* We enter Linux at the point arch_entry would return to as well.
+	 * rax is cleared to signal success to the caller. */
+	asm volatile(
+		"clgi\n\t"
+		"push %%rax\n\t"
+		"mov (%%rdi),%%r15\n\t"
+		"mov 0x8(%%rdi),%%r14\n\t"
+		"mov 0x10(%%rdi),%%r13\n\t"
+		"mov 0x18(%%rdi),%%r12\n\t"
+		"mov 0x20(%%rdi),%%rbx\n\t"
+		"mov 0x28(%%rdi),%%rbp\n\t"
+		"mov %0, %%rax\n\t"
+		"vmload\n\t"
+		"vmrun\n\t"
+		"vmsave\n\t"
+		"pop %%rax\n\t"
+		/* Compensate for push %rbp in preamble */
+		"pop %%rbp\n\t"
+		"jmp vm_exit"
+		: /* no output */
+		: "m" (cpu_data->vmcb), "D" (cpu_data->linux_reg)
+		: "memory", "r15", "r14", "r13", "r12", "rbx", "rbp", "cc");
 	__builtin_unreachable();
 }
 
@@ -699,7 +722,7 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 
 	switch (vmcb->exitcode) {
 		case VMEXIT_INVALID:
-			panic_printk("FATAL: VM-Entry failure\n");
+			panic_printk("FATAL: VM-Entry failure, error %d\n", vmcb->exitcode);
 			dump_guest_regs(guest_regs, vmcb);
 			return;
 		case VMEXIT_NMI:
