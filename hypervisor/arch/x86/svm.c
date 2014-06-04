@@ -777,11 +777,6 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 	panic_halt(cpu_data);
 }
 
-void svm_entry_failure(struct per_cpu *cpu_data)
-{
-	/* TODO: Implement */
-}
-
 void svm_cpu_park(void)
 {
 	/* TODO: Implement */
