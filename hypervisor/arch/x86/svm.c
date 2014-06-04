@@ -407,7 +407,60 @@ void svm_cpu_activate_vmm(struct per_cpu *cpu_data)
 static void __attribute__((noreturn))
 svm_cpu_deactivate_vmm(struct registers *guest_regs, struct per_cpu *cpu_data)
 {
-	/* TODO: Implement */
+	struct vmcb *vmcb = &cpu_data->vmcb;
+	unsigned long *stack = (unsigned long *)vmcb->rsp;
+	unsigned long linux_ip = vmcb->rip;
+
+	cpu_data->linux_cr3 = vmcb->cr3;
+
+	cpu_data->linux_gdtr.base = vmcb->gdtr.base;
+	cpu_data->linux_gdtr.limit = vmcb->gdtr.limit;
+	cpu_data->linux_idtr.base = vmcb->idtr.base;
+	cpu_data->linux_idtr.limit = vmcb->idtr.limit;
+
+	cpu_data->linux_cs.selector = vmcb->cs.selector;
+
+	cpu_data->linux_tss.selector = vmcb->tr.selector;
+
+	cpu_data->linux_efer = vmcb->efer;
+	cpu_data->linux_fs.base = vmcb->fs.base;
+	cpu_data->linux_gs.base = vmcb->gs.base;
+
+	cpu_data->linux_sysenter_cs = vmcb->sysenter_cs;
+	cpu_data->linux_sysenter_eip = vmcb->sysenter_eip;
+	cpu_data->linux_sysenter_esp = vmcb->sysenter_esp;
+
+	cpu_data->linux_ds.selector = vmcb->ds.selector;
+	cpu_data->linux_es.selector = vmcb->es.selector;
+	cpu_data->linux_fs.selector = vmcb->fs.selector;
+	cpu_data->linux_gs.selector = vmcb->gs.selector;
+
+	arch_cpu_restore(cpu_data);
+
+	stack--;
+	*stack = linux_ip;
+
+	asm volatile (
+		"mov %%rbx,%%rsp\n\t"
+		"pop %%r15\n\t"
+		"pop %%r14\n\t"
+		"pop %%r13\n\t"
+		"pop %%r12\n\t"
+		"pop %%r11\n\t"
+		"pop %%r10\n\t"
+		"pop %%r9\n\t"
+		"pop %%r8\n\t"
+		"pop %%rdi\n\t"
+		"pop %%rsi\n\t"
+		"pop %%rbp\n\t"
+		"add $8,%%rsp\n\t"
+		"pop %%rbx\n\t"
+		"pop %%rdx\n\t"
+		"pop %%rcx\n\t"
+		"mov %%rax,%%rsp\n\t"
+		"xor %%rax,%%rax\n\t"
+		"ret"
+		: : "a" (stack), "b" (guest_regs));
 	__builtin_unreachable();
 }
 
