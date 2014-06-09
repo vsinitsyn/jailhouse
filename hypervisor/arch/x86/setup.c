@@ -10,6 +10,7 @@
  * the COPYING file in the top-level directory.
  */
 
+#include <jailhouse/config.h>
 #include <jailhouse/entry.h>
 #include <jailhouse/paging.h>
 #include <jailhouse/processor.h>
@@ -123,6 +124,7 @@ static void read_descriptor(struct per_cpu *cpu_data, struct segment *seg)
 	}
 }
 
+#ifdef ENABLE_VMX
 static void set_cs(u16 cs)
 {
 	struct farptr jmp_target;
@@ -136,6 +138,26 @@ static void set_cs(u16 cs)
 		"1:"
 		: "=r" (tmp) : "m" (jmp_target.offs), "m" (jmp_target));
 }
+#endif
+
+/*
+ * No 'u64 offset' for ljmp on AMD64, and rex64 prefix does nothing.
+ *
+ * TODO: Can we do it the same way on Intel, too, and remove these
+ * #ifdefs altogether?
+ */
+#ifdef ENABLE_SVM
+static void set_cs(u16 cs)
+{
+	asm volatile(
+		"lea 1f(%%rip),%%rax\n\t"
+		"push %0\n\t"
+		"push %%rax\n\t"
+		"lretq\n\t"
+		"1:"
+		: : "m" (cs) : "rax");
+}
+#endif
 
 int arch_cpu_init(struct per_cpu *cpu_data)
 {
