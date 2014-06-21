@@ -28,11 +28,18 @@
 #define SVM_MSRPM_0000		0
 #define SVM_MSRPM_C000		1
 #define SVM_MSRPM_C001		2
-#define SVM_MSRPM_RESV		2
+#define SVM_MSRPM_RESV		3
 
 #define NPT_PAGE_DIR_LEVELS	4
 
 extern bool decode_assists;
+
+struct svm_segment {
+	u16 selector;
+	u16 access_rights;
+	u32 limit;
+	u64 base;
+} __attribute__((packed));
 
 /* This comes from the Xvisor's amd_vmcb.h (adapted) */
 
@@ -275,20 +282,20 @@ struct vmcb {
 	lbrctrl_t lbr_control;		/* offset 0xB8 */
 	u64 res09;			/* offset 0xC0 */
 	u64 nextrip;			/* offset 0xC8 */
-	u8 guest_bytes[15];             /* offset 0xD0 */
-	u8 bytes_fetched;
+	u8 bytes_fetched;		/* offset 0xD0 */
+	u8 guest_bytes[15];
 	u64 res10a[100];		/* offset 0xE0 pad to save area */
 
-	struct segment es;		/* offset 1024 */
-	struct segment cs;
-	struct segment ss;
-	struct segment ds;
-	struct segment fs;
-	struct segment gs;
-	struct segment gdtr;
-	struct segment ldtr;
-	struct segment idtr;
-	struct segment tr;
+	struct svm_segment es;		/* offset 1024 */
+	struct svm_segment cs;
+	struct svm_segment ss;
+	struct svm_segment ds;
+	struct svm_segment fs;
+	struct svm_segment gs;
+	struct svm_segment gdtr;
+	struct svm_segment ldtr;
+	struct svm_segment idtr;
+	struct svm_segment tr;
 
 	u64 res10[5];
 	u8 res11[3];
