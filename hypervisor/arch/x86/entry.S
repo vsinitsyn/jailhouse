@@ -186,7 +186,9 @@ vm_exit:
 	.globl vm_exit
 vm_exit:
 	/* XXX: GIF is always cleared here */
-	sub $8,%rsp /* placeholder for rax */
+	push %rax
+
+	push -PERCPU_STACK_END+1*8+PERCPU_VMCB_RAX(%rsp)
 	push %rcx
 	push %rdx
 	push %rbx
@@ -204,7 +206,7 @@ vm_exit:
 	push %r15
 
 	mov %rsp,%rdi
-	lea -PERCPU_STACK_END+16*8(%rsp),%rsi
+	lea -PERCPU_STACK_END+1*8+16*8(%rsp),%rsi
 	call svm_handle_exit
 
 	pop %r15
@@ -222,14 +224,13 @@ vm_exit:
 	pop %rbx
 	pop %rdx
 	pop %rcx
-	add $8,%rsp
 
-	push %rax
-	mov -PERCPU_STACK_END+1*8+PERCPU_VMCB_OFFSET(%rsp), %rax
+	pop -PERCPU_STACK_END+1*8+PERCPU_VMCB_RAX(%rsp)
+	pop %rax
+
 	vmload
 	vmrun
 	vmsave
-	pop %rax
 
 	jmp vm_exit
 #endif
