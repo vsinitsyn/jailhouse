@@ -939,6 +939,11 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 				return;
 			break;
 		/* TODO: Handle VMEXIT_AVIC_NOACCEL and VMEXIT_AVIC_INCOMPLETE_IPI */
+		default:
+			panic_printk("FATAL: Unexpected #VMEXIT, exitcode %x, "
+					"exitinfo1 %p exitinfo2 %p\n",
+					vmcb->exitcode, vmcb->exitinfo1,
+					vmcb->exitinfo2);
 	}
 	dump_guest_regs(guest_regs, vmcb);
 	panic_halt();
