@@ -269,7 +269,7 @@ int svm_init(void)
 
 /*
  * TODO: This is an almost 100% copy of vmx_cell_init(), except for the
- * has_avic branch, iopm copy loop condition and error_out. Refactor the common parts.
+ * has_avic branch and error_out. Refactor the common parts.
  */
 int svm_cell_init(struct cell *cell)
 {
@@ -324,7 +324,8 @@ int svm_cell_init(struct cell *cell)
 
 	memset(cell->svm.iopm, -1, sizeof(cell->svm.iopm));
 
-	for (n = 0; n < 3; n++) {
+	/* Assume pio_bitmap is never more than two pages long */
+	for (n = 0; n < 2; n++) {
 		size = pio_bitmap_size <= PAGE_SIZE ?
 			pio_bitmap_size : PAGE_SIZE;
 		memcpy(cell->svm.iopm + n * PAGE_SIZE, pio_bitmap, size);
