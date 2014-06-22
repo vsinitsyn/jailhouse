@@ -126,7 +126,7 @@ static void svm_set_svm_segment_from_segment(struct svm_segment *svm_segment,
 		ar = segment->access_rights;
 		svm_segment->access_rights = ((ar & 0xf000) >> 4) | (ar & 0x00ff);
 	}
-	
+
 	svm_segment->limit = segment->limit;
 	svm_segment->base = segment->base;
 }
@@ -162,11 +162,11 @@ static int vmcb_setup(struct per_cpu *cpu_data)
 	svm_set_svm_segment_from_segment(&vmcb->gs, &cpu_data->linux_gs);
 	svm_set_svm_segment_from_segment(&vmcb->ss, &invalid_seg);
 	svm_set_svm_segment_from_segment(&vmcb->tr, &cpu_data->linux_tss);
-	
+
 	svm_set_svm_segment_from_dtr(&vmcb->ldtr, NULL);
 	svm_set_svm_segment_from_dtr(&vmcb->gdtr, &cpu_data->linux_gdtr);
 	svm_set_svm_segment_from_dtr(&vmcb->idtr, &cpu_data->linux_idtr);
-	
+
 	vmcb->cpl = 0; /* Linux runs in ring 0 before migration */
 
 	vmcb->rflags = 0x02;
@@ -396,9 +396,9 @@ int svm_cpu_init(struct per_cpu *cpu_data)
 
 	if (!vmcb_setup(cpu_data))
 		return -EIO;
-	
+
 	write_msr(MSR_VM_HSAVE_PA, page_map_hvirt2phys(cpu_data->host_state));
-	
+
 	return 0;
 }
 
@@ -411,7 +411,7 @@ void svm_cpu_exit(struct per_cpu *cpu_data)
 	efer = read_msr(MSR_EFER);
 	efer &= ~EFER_SVME;
 	write_msr(MSR_EFER, efer);
-	
+
 	write_msr(MSR_VM_HSAVE_PA, 0);
 }
 
