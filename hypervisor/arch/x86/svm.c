@@ -860,6 +860,11 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 			if (svm_handle_io_access(guest_regs, cpu_data))
 				return;
 			break;
+		default:
+			panic_printk("FATAL: Unexpected #VMEXIT, exitcode %x, "
+					"exitinfo1 %p exitinfo2 %p\n",
+					vmcb->exitcode, vmcb->exitinfo1,
+					vmcb->exitinfo2);
 	}
 	dump_guest_regs(guest_regs, vmcb);
 	panic_halt(cpu_data);
