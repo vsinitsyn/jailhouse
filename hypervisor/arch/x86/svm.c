@@ -242,7 +242,8 @@ int svm_init(void)
 	for(n = 0; n < NPT_PAGE_DIR_LEVELS; n++)
 		npt_paging[n].set_next_pt = npt_set_next_pt;
 
-	/* This is always false for AMD now; see Sect. 16.3.1 in APMv2 */
+	/* This is always false for AMD now (except in nested SVM);
+	   see Sect. 16.3.1 in APMv2 */
 	if (using_x2apic) {
 		/* allow direct x2APIC access except for ICR writes */
 		memset(msrpm[SVM_MSRPM_0000], 0, sizeof(msrpm[SVM_MSRPM_0000]));
@@ -842,7 +843,8 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 					vmcb->exitinfo1 & 0xf);
 			break;
 		case VMEXIT_XSETBV:
-			/* TODO: This is very much like vmx_handle_exit() code. Refactor common parts */
+			/* TODO: This is very much like vmx_handle_exit() code.
+			   Refactor common parts */
 			svm_skip_emulated_instruction(X86_INST_LEN_XSETBV, vmcb);
 			if (guest_regs->rax & X86_XCR0_FP &&
 			    (guest_regs->rax & ~cpuid_eax(0x0d)) == 0 &&
@@ -861,6 +863,7 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 			if (svm_handle_io_access(guest_regs, cpu_data))
 				return;
 			break;
+		/* TODO: Handle VMEXIT_AVIC_NOACCEL and VMEXIT_AVIC_INCOMPLETE_IPI */
 		default:
 			panic_printk("FATAL: Unexpected #VMEXIT, exitcode %x, "
 					"exitinfo1 %p exitinfo2 %p\n",
