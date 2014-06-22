@@ -408,11 +408,33 @@ void svm_cpu_exit(struct per_cpu *cpu_data)
 
 void svm_cpu_activate_vmm(struct per_cpu *cpu_data)
 {
+	unsigned long vmcb_pa, host_stack;
+
+	vmcb_pa = page_map_hvirt2phys(&cpu_data->vmcb);
+	host_stack = (unsigned long)cpu_data->stack + sizeof(cpu_data->stack);
+
+	/* Clear host-mode MSRs */
+	write_msr(MSR_IA32_SYSENTER_CS, 0);
+	write_msr(MSR_IA32_SYSENTER_EIP, 0);
+	write_msr(MSR_IA32_SYSENTER_ESP, 0);
+
+	write_msr(MSR_STAR, 0);
+	write_msr(MSR_LSTAR, 0);
+	write_msr(MSR_CSTAR, 0);
+	write_msr(MSR_SFMASK, 0);
+	write_msr(MSR_KERNGS_BASE, 0);
+
+	/*
+	 * XXX: We don't set our own PAT here but rather rely on Linux PAT
+	 * settigs (and MTRRs). Potentially, a malicious Linux root cell can
+	 * set values different from what we expect, and interfere with APIC
+	 * virtualization in non-AVIC mode.
+	 */
+
 	/* We enter Linux at the point arch_entry would return to as well.
 	 * rax is cleared to signal success to the caller. */
 	asm volatile(
 		"clgi\n\t"
-		"push %%rax\n\t"
 		"mov (%%rdi),%%r15\n\t"
 		"mov 0x8(%%rdi),%%r14\n\t"
 		"mov 0x10(%%rdi),%%r13\n\t"
@@ -423,13 +445,13 @@ void svm_cpu_activate_vmm(struct per_cpu *cpu_data)
 		"vmload\n\t"
 		"vmrun\n\t"
 		"vmsave\n\t"
-		"pop %%rax\n\t"
-		/* Compensate for push %rbp in preamble */
-		"pop %%rbp\n\t"
+		/* Restore hypervisor stack */
+		"mov %2, %%rsp\n\t"
 		"jmp vm_exit"
 		: /* no output */
-		: "m" (cpu_data->vmcb), "D" (cpu_data->linux_reg)
-		: "memory", "r15", "r14", "r13", "r12", "rbx", "rbp", "cc");
+		/* FIXME: Why can't we use "m" (vmcb_pa) here? */
+		: "l" (vmcb_pa), "D" (cpu_data->linux_reg), "m" (host_stack)
+		: "memory", "r15", "r14", "r13", "r12", "rbx", "rbp", "rax", "cc");
 	__builtin_unreachable();
 }
 
@@ -439,6 +461,22 @@ svm_cpu_deactivate_vmm(struct registers *guest_regs, struct per_cpu *cpu_data)
 	struct vmcb *vmcb = &cpu_data->vmcb;
 	unsigned long *stack = (unsigned long *)vmcb->rsp;
 	unsigned long linux_ip = vmcb->rip;
+
+	/* We are leaving - set the GIF */
+	asm volatile ("stgi" : : : "memory");
+
+	/*
+	 * Restore the MSRs.
+	 *
+	 * XXX: One could argue this is better to be done in
+	 * arch_cpu_restore(), however, it would require changes
+	 * to cpu_data to store STAR and friends.
+	 */
+	write_msr(MSR_STAR, vmcb->star);
+	write_msr(MSR_LSTAR, vmcb->lstar);
+	write_msr(MSR_CSTAR, vmcb->cstar);
+	write_msr(MSR_SFMASK, vmcb->sfmask);
+	write_msr(MSR_KERNGS_BASE, vmcb->kerngsbase);
 
 	cpu_data->linux_cr3 = vmcb->cr3;
 
@@ -451,7 +489,7 @@ svm_cpu_deactivate_vmm(struct registers *guest_regs, struct per_cpu *cpu_data)
 
 	cpu_data->linux_tss.selector = vmcb->tr.selector;
 
-	cpu_data->linux_efer = vmcb->efer;
+	cpu_data->linux_efer = vmcb->efer & (~EFER_SVME);
 	cpu_data->linux_fs.base = vmcb->fs.base;
 	cpu_data->linux_gs.base = vmcb->gs.base;
 
@@ -601,7 +639,7 @@ static bool svm_handle_msr_write(struct registers *guest_regs, struct per_cpu *c
 		goto out;
 	}
 	if (guest_regs->rcx == MSR_EFER &&
-	    !(vmcb->rax & EFER_SVME)) {
+	    !(guest_regs->rax & EFER_SVME)) {
 		panic_printk("Ignoring guest attempt to clear SVME\n");
 		/* TODO: Maybe simple inject #GP or similar into the guest? */
 	}
@@ -764,7 +802,7 @@ static void dump_guest_regs(struct registers *guest_regs, struct vmcb *vmcb)
 {
 	panic_printk("RIP: %p RSP: %p FLAGS: %x\n", vmcb->rip,
 		     vmcb->rsp, vmcb->rflags);
-	panic_printk("RAX: %p RBX: %p RCX: %p\n", vmcb->rax,
+	panic_printk("RAX: %p RBX: %p RCX: %p\n", guest_regs->rax,
 		     guest_regs->rbx, guest_regs->rcx);
 	panic_printk("RDX: %p RSI: %p RDI: %p\n", guest_regs->rdx,
 		     guest_regs->rsi, guest_regs->rdi);
@@ -845,19 +883,19 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 			/* TODO: This is very much like vmx_handle_exit() code.
 			   Refactor common parts */
 			cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_XSETBV]++;
-			if (vmcb->rax & X86_XCR0_FP &&
-			    (vmcb->rax & ~cpuid_eax(0x0d)) == 0 &&
+			if (guest_regs->rax & X86_XCR0_FP &&
+			    (guest_regs->rax & ~cpuid_eax(0x0d)) == 0 &&
 			    guest_regs->rcx == 0 && guest_regs->rdx == 0) {
 				svm_skip_emulated_instruction(X86_INST_LEN_XSETBV, vmcb);
 				asm volatile(
 					"xsetbv"
 					: /* no output */
-					: "a" (vmcb->rax), "c" (0), "d" (0));
+					: "a" (guest_regs->rax), "c" (0), "d" (0));
 				return;
 			}
 			panic_printk("FATAL: Invalid xsetbv parameters: "
 					"xcr[%d] = %08x:%08x\n", guest_regs->rcx,
-					guest_regs->rdx, vmcb->rax);
+					guest_regs->rdx, guest_regs->rax);
 			break;
 		case VMEXIT_IOIO:
 			cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_PIO]++;
