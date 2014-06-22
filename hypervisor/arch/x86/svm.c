@@ -81,19 +81,19 @@ void *avic_page;
 static int svm_check_features(void)
 {
 	/* SVM is available */
-	if (!(cpuid_ecx(0x80000001) & 0x04))
+	if (!(cpuid_ecx(0x80000001) & X86_FEATURE_SVM))
 		return -ENODEV;
 
 	/* Nested paging */
-	if (!(cpuid_edx(0x8000000A) & 0x01))
+	if (!(cpuid_edx(0x8000000A) & X86_FEATURE_NP))
 		return -EIO;
 
 	/* Decode assists */
-	if (!(cpuid_edx(0x8000000A) & 0x07))
+	if (!(cpuid_edx(0x8000000A) & X86_FEATURE_DECODE_ASSISTS))
 		return -EIO;
 
 	/* AVIC support */
-	if (cpuid_edx(0x8000000A) & 0x2000)
+	if (cpuid_edx(0x8000000A) & X86_FEATURE_AVIC)
 		has_avic = true;
 
 	return 0;
@@ -946,7 +946,7 @@ void svm_tlb_flush(struct per_cpu *cpu_data)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
 
-	if (cpuid_edx(0x8000000A) & 0x60) {
+	if (cpuid_edx(0x8000000A) & X86_FEATURE_FLUSH_BY_ASID) {
 		/* FIXME: Use symbolic names */
 		vmcb->tlb_control = 0x03;
 	} else {
