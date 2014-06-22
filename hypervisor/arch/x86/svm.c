@@ -216,10 +216,17 @@ unsigned long arch_page_map_gphys2phys(struct per_cpu *cpu_data,
 	return page_map_virt2phys(&cpu_data->cell->svm.npt_structs, gphys);
 }
 
+static void npt_set_next_pt(pt_entry_t pte, unsigned long next_pt)
+{
+	/* See APMv2, Section 15.25.5 */
+       *pte = (next_pt & 0x000ffffffffff000UL) |
+	       (PAGE_DEFAULT_FLAGS | PAGE_FLAG_US);
+}
+
 int svm_init(void)
 {
 	unsigned long vm_cr;
-	int err;
+	int err, n;
 
 	err = svm_check_features();
 	if (err)
@@ -232,6 +239,8 @@ int svm_init(void)
 
 	/* Nested paging is the same as the native one */
 	memcpy(npt_paging, x86_64_paging, sizeof(npt_paging));
+	for(n = 0; n < NPT_PAGE_DIR_LEVELS; n++)
+		npt_paging[n].set_next_pt = npt_set_next_pt;
 
 	/* This is always false for AMD now; see Sect. 16.3.1 in APMv2 */
 	if (using_x2apic) {
@@ -262,6 +271,7 @@ int svm_cell_init(struct cell *cell)
 	u32 pio_bitmap_size = config->pio_bitmap_size;
 	int n, err;
 	u32 size;
+	u64 flags;
 
 	/* build root cell EPT */
 	cell->svm.npt_structs.root_paging = npt_paging;
@@ -276,16 +286,27 @@ int svm_cell_init(struct cell *cell)
 	}
 
 	if (!has_avic) {
-		/* Map xAPIC as is; reads are passed, writes are trapped */
+		/*
+		 * Map xAPIC as is; reads are passed, writes are trapped.
+		 *
+		 * FIXME: This is known not to work in nested SVM setup, so
+		 * for now, all access is traped (here and in
+		 * svm_handle_exit() as well).
+		 */
+		flags = PAGE_READONLY_FLAGS |
+			/* PAGE_FLAG_US | */
+			PAGE_FLAG_WRITETHROUGH |
+			PAGE_FLAG_UNCACHED;
 		err = page_map_create(&cell->svm.npt_structs, XAPIC_BASE,
 				      PAGE_SIZE, XAPIC_BASE,
-				      PAGE_READONLY_FLAGS | PAGE_FLAG_UNCACHED,
+				      flags,
 				      PAGE_MAP_NON_COHERENT);
 	} else {
+		flags = PAGE_DEFAULT_FLAGS | PAGE_FLAG_UNCACHED;
 		err = page_map_create(&cell->svm.npt_structs,
 				      page_map_hvirt2phys(avic_page),
+				      flags,
 				      PAGE_SIZE, XAPIC_BASE,
-				      PAGE_DEFAULT_FLAGS | PAGE_FLAG_UNCACHED,
 				      PAGE_MAP_NON_COHERENT);
 	}
 
@@ -323,7 +344,7 @@ int svm_map_memory_region(struct cell *cell,
 			  const struct jailhouse_memory *mem)
 {
 	u64 phys_start = mem->phys_start;
-	u32 flags = 0;
+	u32 flags = PAGE_FLAG_US; /* See APMv2, Section 15.25.5 */
 
 	if (mem->flags & JAILHOUSE_MEM_READ)
 		flags |= PAGE_FLAG_PRESENT;
@@ -810,13 +831,13 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 		case VMEXIT_NPF:
 			/* Detect APIC access in non-AVIC mode */
 			if (!has_avic &&
-			    (vmcb->exitinfo1 & 0x7) == 0x7 &&
+			    /* (vmcb->exitinfo1 & 0x7) == 0x7 && */
 			    vmcb->exitinfo2 >= XAPIC_BASE &&
 			    vmcb->exitinfo2 < XAPIC_BASE + PAGE_SIZE)
 				if (svm_handle_apic_access(guest_regs, cpu_data))
 					return;
 			panic_printk("FATAL: Unhandled Nested Page Fault for (%p), "
-					"error code is %x", vmcb->exitinfo2,
+					"error code is %x\n", vmcb->exitinfo2,
 					vmcb->exitinfo1 & 0xf);
 			break;
 		case VMEXIT_XSETBV:
