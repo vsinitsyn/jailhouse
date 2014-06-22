@@ -628,7 +628,7 @@ static bool svm_handle_msr_read(struct registers *guest_regs, struct per_cpu *cp
 		x2apic_handle_read(guest_regs);
 		return true;
 	} else {
-		panic_printk("FATAL: Unhandled MSR read: %08x\n",
+		panic_printk("FATAL: Unhandled MSR read: %x\n",
 				guest_regs->rcx);
 		return false;
 	}
@@ -892,7 +892,7 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 			}
 
 			panic_printk("FATAL: Unhandled Nested Page Fault for (%p), "
-					"error code is %04x", vmcb->exitinfo2,
+					"error code is %x", vmcb->exitinfo2,
 					vmcb->exitinfo1 & 0xf);
 			break;
 		case VMEXIT_XSETBV:
@@ -910,7 +910,7 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 				return;
 			}
 			panic_printk("FATAL: Invalid xsetbv parameters: "
-					"xcr[%d] = %08x:%08x\n", guest_regs->rcx,
+					"xcr[%d] = %x:%x\n", guest_regs->rcx,
 					guest_regs->rdx, guest_regs->rax);
 			break;
 		case VMEXIT_IOIO:
