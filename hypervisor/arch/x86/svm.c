@@ -152,13 +152,14 @@ static int vmcb_setup(struct per_cpu *cpu_data)
 	memset(vmcb, sizeof(struct vmcb), 0);
 
 	vmcb->cr0 = read_cr0() & SVM_CR0_CLEARED_BITS;
-	vmcb->cr3 = read_cr3();
+	vmcb->cr3 = cpu_data->linux_cr3;
 	vmcb->cr4 = read_cr4();
 
 	svm_set_svm_segment_from_segment(&vmcb->cs, &cpu_data->linux_cs);
 	svm_set_svm_segment_from_segment(&vmcb->ds, &cpu_data->linux_ds);
 	svm_set_svm_segment_from_segment(&vmcb->es, &cpu_data->linux_es);
 	svm_set_svm_segment_from_segment(&vmcb->fs, &cpu_data->linux_fs);
+	svm_set_svm_segment_from_segment(&vmcb->gs, &cpu_data->linux_gs);
 	svm_set_svm_segment_from_segment(&vmcb->ss, &invalid_seg);
 	svm_set_svm_segment_from_segment(&vmcb->tr, &cpu_data->linux_tss);
 
@@ -174,9 +175,15 @@ static int vmcb_setup(struct per_cpu *cpu_data)
 	vmcb->rsp = cpu_data->linux_sp +
 		(NUM_ENTRY_REGS + 1) * sizeof(unsigned long);
 	vmcb->rip = cpu_data->linux_ip;
+
 	vmcb->sysenter_cs = read_msr(MSR_IA32_SYSENTER_CS);
 	vmcb->sysenter_eip = read_msr(MSR_IA32_SYSENTER_EIP);
 	vmcb->sysenter_esp = read_msr(MSR_IA32_SYSENTER_ESP);
+	vmcb->star = read_msr(MSR_STAR);
+	vmcb->lstar = read_msr(MSR_LSTAR);
+	vmcb->cstar = read_msr(MSR_CSTAR);
+	vmcb->sfmask = read_msr(MSR_SFMASK);
+	vmcb->kerngsbase = read_msr(MSR_KERNGS_BASE);
 
 	vmcb->dr6 = 0x00000ff0;
 	vmcb->dr7 = 0x00000400;
@@ -184,7 +191,8 @@ static int vmcb_setup(struct per_cpu *cpu_data)
 	/* Make the hypervisor visible */
 	vmcb->efer = (cpu_data->linux_efer | EFER_SVME);
 
-	/* TODO: switch PAT, PERF */
+	/* Linux uses custom PAT setting */
+	vmcb->g_pat = read_msr(MSR_IA32_PAT);
 
 	vmcb->general1_intercepts |= GENERAL1_INTERCEPT_NMI;
 	vmcb->general1_intercepts |= GENERAL1_INTERCEPT_CR0_SEL_WRITE;
@@ -192,8 +200,10 @@ static int vmcb_setup(struct per_cpu *cpu_data)
 	/* vmcb->general1_intercepts |= GENERAL1_INTERCEPT_CPUID; */
 	vmcb->general1_intercepts |= GENERAL1_INTERCEPT_IOIO_PROT;
 	vmcb->general1_intercepts |= GENERAL1_INTERCEPT_MSR_PROT;
+	vmcb->general1_intercepts |= GENERAL1_INTERCEPT_SHUTDOWN_EVT;
 
 	vmcb->general2_intercepts |= GENERAL2_INTERCEPT_VMRUN; /* Required */
+	vmcb->general2_intercepts |= GENERAL2_INTERCEPT_VMMCALL;
 
 	vmcb->msrpm_base_pa = page_map_hvirt2phys(msrpm);
 
