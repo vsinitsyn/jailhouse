@@ -86,8 +86,11 @@ static int svm_check_features(void)
 		return -EIO;
 
 	/* Decode assists */
+#if 0
+	/* XXX: Temporarily disable, since they aren't available in nested SVM */
 	if (!(cpuid_edx(0x8000000A) & X86_FEATURE_DECODE_ASSISTS))
 		return -EIO;
+#endif
 
 	/* AVIC support */
 	if (cpuid_edx(0x8000000A) & X86_FEATURE_AVIC)
