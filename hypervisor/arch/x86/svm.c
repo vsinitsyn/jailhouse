@@ -543,7 +543,99 @@ svm_cpu_deactivate_vmm(struct registers *guest_regs, struct per_cpu *cpu_data)
 static void svm_cpu_reset(struct registers *guest_regs,
 			  struct per_cpu *cpu_data, unsigned int sipi_vector)
 {
-	/* TODO: Implement */
+	unsigned long val;
+	bool ok = true;
+	struct vmcb *vmcb = &cpu_data->vmcb;
+
+	vmcb->cr0 = X86_CR0_NW | X86_CR0_CD | X86_CR0_ET;
+	vmcb->cr4 = 0;
+	vmcb->cr4 = 0;
+
+	vmcb->rflags = 0x02;
+
+	val = 0;
+	if (sipi_vector == APIC_BSP_PSEUDO_SIPI) {
+		val = 0xfff0;
+		sipi_vector = 0xf0;
+	}
+	vmcb->rip = val;
+	vmcb->rsp = 0;
+
+	vmcb->cs.selector = sipi_vector << 8;
+	vmcb->cs.base = sipi_vector << 12;
+	vmcb->cs.limit = 0xffff;
+	vmcb->cs.access_rights = 0x009b;
+
+	vmcb->ds.selector = 0;
+	vmcb->ds.base = 0;
+	vmcb->ds.limit = 0xffff;
+	vmcb->ds.access_rights = 0x0093;
+
+	vmcb->es.selector = 0;
+	vmcb->es.base = 0;
+	vmcb->es.limit = 0xffff;
+	vmcb->es.access_rights = 0x0093;
+
+	vmcb->fs.selector = 0;
+	vmcb->fs.base = 0;
+	vmcb->fs.limit = 0xffff;
+	vmcb->fs.access_rights = 0x0093;
+
+	vmcb->gs.selector = 0;
+	vmcb->gs.base = 0;
+	vmcb->gs.limit = 0xffff;
+	vmcb->gs.access_rights = 0x0093;
+
+	vmcb->ss.selector = 0;
+	vmcb->ss.base = 0;
+	vmcb->ss.limit = 0xffff;
+	vmcb->ss.access_rights = 0x0093;
+
+	vmcb->tr.selector = 0;
+	vmcb->tr.base = 0;
+	vmcb->tr.limit = 0xffff;
+	vmcb->tr.access_rights = 0x008b;
+
+	vmcb->ldtr.selector = 0;
+	vmcb->ldtr.base = 0;
+	vmcb->ldtr.limit = 0xffff;
+	vmcb->ldtr.access_rights = 0x0082;
+
+	vmcb->gdtr.selector = 0;
+	vmcb->gdtr.base = 0;
+	vmcb->gdtr.limit = 0xffff;
+	vmcb->gdtr.access_rights = 0;
+
+	vmcb->idtr.selector = 0;
+	vmcb->idtr.base = 0;
+	vmcb->idtr.limit = 0xffff;
+	vmcb->idtr.access_rights = 0;
+
+	vmcb->efer = 0;
+
+	/* These MSRs are undefined on reset */
+	vmcb->star = 0;
+	vmcb->lstar = 0;
+	vmcb->cstar = 0;
+	vmcb->sfmask = 0;
+	vmcb->sysenter_cs = 0;
+	vmcb->sysenter_eip = 0;
+	vmcb->sysenter_esp = 0;
+	vmcb->kerngsbase = 0;
+
+	vmcb->g_pat = 0x0007040600070406;
+
+	vmcb->dr7 = 0x00000400;
+
+	ok &= svm_set_cell_config(cpu_data->cell, vmcb);
+
+	memset(guest_regs, 0, sizeof(*guest_regs));
+
+	/* This is always false, but to be consistent with vmx.c... */
+	if (!ok) {
+		panic_printk("FATAL: CPU reset failed\n");
+		panic_stop(cpu_data);
+	}
 }
 
 static void svm_skip_emulated_instruction(unsigned int inst_len, struct vmcb *vmcb)
