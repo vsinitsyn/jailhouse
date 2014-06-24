@@ -899,6 +899,8 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 			panic_stop(cpu_data);
 			return;
 		case VMEXIT_NMI:
+			/* Temporarily enable GIF to consume pending NMI */
+			asm volatile("stgi; clgi" : : : "memory");
 			sipi_vector = x86_handle_events(cpu_data);
 			if (sipi_vector >= 0) {
 				printk("CPU %d received SIPI, vector %x\n",
