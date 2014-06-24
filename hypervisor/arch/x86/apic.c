@@ -210,12 +210,7 @@ void apic_nmi_handler(struct per_cpu *cpu_data)
 #ifdef ENABLE_VMX
 	vmx_schedule_vmexit(cpu_data);
 #else
-	/*
-	 * No vmx_schedule_vmexit() equivalent needed since other
-	 * ways to serialize NMI exist.
-	 */
-	panic_printk("Got NMI in host mode, halting the CPU");
-	panic_halt();
+	printk("Consuming pending NMI on CPU %d\n", cpu_data->cpu_id);
 #endif
 }
 
