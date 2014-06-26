@@ -335,9 +335,22 @@ error_out:
 	return err;
 }
 
-void svm_root_cell_shrink(struct jailhouse_cell_desc *config)
+/*
+ * TODO: This function is the same as vmx_root_cell_shrink()
+ * except the last line. Refactor common parts.
+ */
+void svm_root_cell_shrink(struct per_cpu *cpu_data,
+		          struct jailhouse_cell_desc *config)
 {
-	/* TODO: Implement */
+	const u8 *pio_bitmap = jailhouse_cell_pio_bitmap(config);
+	u32 pio_bitmap_size = config->pio_bitmap_size;
+	u8 *b;
+
+	for (b = root_cell.svm.iopm; pio_bitmap_size > 0;
+	     b++, pio_bitmap++, pio_bitmap_size--)
+		*b |= ~*pio_bitmap;
+
+	svm_tlb_flush(cpu_data);
 }
 
 /*

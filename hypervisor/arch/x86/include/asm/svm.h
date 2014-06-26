@@ -339,7 +339,8 @@ struct vmcb {
 int svm_init(void);
 
 int svm_cell_init(struct cell *cell);
-void svm_root_cell_shrink(struct jailhouse_cell_desc *config);
+void svm_root_cell_shrink(struct per_cpu *cpu_data,
+		          struct jailhouse_cell_desc *config);
 int svm_map_memory_region(struct cell *cell,
 			  const struct jailhouse_memory *mem);
 int svm_unmap_memory_region(struct cell *cell,
