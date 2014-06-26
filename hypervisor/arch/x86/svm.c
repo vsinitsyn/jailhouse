@@ -384,9 +384,30 @@ int svm_unmap_memory_region(struct cell *cell,
 				mem->size, PAGE_MAP_NON_COHERENT);
 }
 
+/*
+ * TODO: This function is the same as vmx_cell_exit().
+ * Refactor common parts.
+ */
 void svm_cell_exit(struct cell *cell)
 {
-	/* TODO: Implement */
+	const u8 *root_pio_bitmap =
+		jailhouse_cell_pio_bitmap(root_cell.config);
+	struct jailhouse_cell_desc *config = cell->config;
+	const u8 *pio_bitmap = jailhouse_cell_pio_bitmap(config);
+	u32 pio_bitmap_size = config->pio_bitmap_size;
+	u8 *b;
+
+	page_map_destroy(&cell->svm.npt_structs, XAPIC_BASE, PAGE_SIZE,
+			 PAGE_MAP_NON_COHERENT);
+
+	if (root_cell.config->pio_bitmap_size < pio_bitmap_size)
+		pio_bitmap_size = root_cell.config->pio_bitmap_size;
+
+	for (b = root_cell.svm.iopm; pio_bitmap_size > 0;
+	     b++, pio_bitmap++, root_pio_bitmap++, pio_bitmap_size--)
+		*b &= *pio_bitmap | *root_pio_bitmap;
+
+	page_free(&mem_pool, cell->svm.npt_structs.root_table, 1);
 }
 
 int svm_cpu_init(struct per_cpu *cpu_data)
