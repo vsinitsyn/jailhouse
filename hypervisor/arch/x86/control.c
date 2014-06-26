@@ -43,7 +43,7 @@ int arch_cell_create(struct per_cpu *cpu_data, struct cell *cell)
 	err = vm_cell_init(cell);
 	if (err)
 		return err;
-	vm_root_cell_shrink(cell->config);
+	vm_root_cell_shrink(cpu_data, cell->config);
 	flush_root_cell_cpu_caches(cpu_data);
 
 	err = iommu_cell_init(cell);

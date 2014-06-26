@@ -292,7 +292,8 @@ int vmx_cell_init(struct cell *cell)
 	return 0;
 }
 
-void vmx_root_cell_shrink(struct jailhouse_cell_desc *config)
+void vmx_root_cell_shrink(struct per_cpu *cpu_data __attribute__((unused)),
+		          struct jailhouse_cell_desc *config)
 {
 	const u8 *pio_bitmap = jailhouse_cell_pio_bitmap(config);
 	u32 pio_bitmap_size = config->pio_bitmap_size;
