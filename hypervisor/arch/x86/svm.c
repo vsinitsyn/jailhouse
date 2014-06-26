@@ -21,6 +21,7 @@
 #include <jailhouse/processor.h>
 #include <jailhouse/paging.h>
 #include <jailhouse/string.h>
+#include <jailhouse/utils.h>
 
 #include <asm/apic.h>
 #include <asm/amd_iommu.h>
@@ -34,7 +35,7 @@
 
 #define SVM_CR0_CLEARED_BITS	(~(X86_CR0_CD | X86_CR0_NW))
 
-bool has_avic = false;
+bool has_avic = false, has_assists = false;
 
 static u32 current_asid = 1; /* ASID 0 is for host mode */
 
@@ -91,11 +92,8 @@ static int svm_check_features(void)
 		return -EIO;
 
 	/* Decode assists */
-#if 0
-	/* XXX: Temporarily disable, since they aren't available in nested SVM */
-	if (!(cpuid_edx(0x8000000A) & X86_FEATURE_DECODE_ASSISTS))
-		return -EIO;
-#endif
+	if ((cpuid_edx(0x8000000A) & X86_FEATURE_DECODE_ASSISTS))
+		has_assists = true;
 
 	/* AVIC support */
 	if (cpuid_edx(0x8000000A) & X86_FEATURE_AVIC)
@@ -723,18 +721,95 @@ static void svm_handle_hypercall(struct registers *guest_regs,
 		svm_cpu_deactivate_vmm(guest_regs, cpu_data);
 }
 
+static bool
+svm_get_guest_paging_structs(struct guest_paging_structures *pg_structs, struct vmcb *vmcb)
+{
+	if (vmcb->efer & EFER_LMA) {
+		pg_structs->root_paging = x86_64_paging;
+		pg_structs->root_table_gphys =
+			vmcb->cr3 & 0x000ffffffffff000UL;
+	} else if ((vmcb->cr0 & X86_CR0_PG) &&
+		   !(vmcb->cr4 & X86_CR4_PAE)) {
+		pg_structs->root_paging = i386_paging;
+		pg_structs->root_table_gphys =
+			vmcb->cr3 & 0xfffff000UL;
+	} else {
+		printk("FATAL: Unsupported paging mode\n");
+		return false;
+	}
+	return true;
+}
+
+static bool x86_parse_mov_to_cr(struct per_cpu *cpu_data,
+		                 struct guest_paging_structures *pg_structs,
+		                 unsigned long rip,
+				 unsigned char reg,
+				 unsigned long *gpr)
+{
+	/* No prefixes are supported yet */
+	u8 opcodes[] = {0x0f, 0x22};
+	u8 *guest_page, modrm;
+	int n;
+	bool ok = true;
+
+	guest_page = page_map_get_guest_page(cpu_data, pg_structs,
+			rip, PAGE_READONLY_FLAGS);
+
+	for (n = 0; n < ARRAY_SIZE(opcodes); n++, rip++) {
+		if (guest_page[rip & PAGE_OFFS_MASK] != opcodes[n]) {
+			ok = false;
+			goto out;
+		}
+
+		if (!(rip & ~PAGE_MASK))
+			guest_page = page_map_get_guest_page(cpu_data,
+					pg_structs, rip, PAGE_READONLY_FLAGS);
+	}
+
+	if (!(rip & ~PAGE_MASK))
+		guest_page = page_map_get_guest_page(cpu_data,
+				pg_structs, rip, PAGE_READONLY_FLAGS);
+
+	modrm = guest_page[rip & PAGE_OFFS_MASK];
+
+	if (((modrm & 0x1c) >> 2) != reg) {
+		ok = false;
+		goto out;
+	}
+
+	if (gpr)
+		*gpr = ((modrm & 0xe0) >> 5);
+
+out:
+	return ok;
+}
+
 static bool svm_handle_cr(struct registers *guest_regs,
 			  struct per_cpu *cpu_data)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
+	struct guest_paging_structures pg_structs;
 	unsigned long reg, val;
+	bool ok = true;
 
-	if (!(vmcb->exitinfo1 & (1UL << 63))) {
-		panic_printk("FATAL: Unsupported CR access (LMSW or CLTS)\n");
-		return false;
-	}
-
-	reg = vmcb->exitinfo1 & 0x07;
+	if (has_assists) {
+		if (!(vmcb->exitinfo1 & (1UL << 63))) {
+			panic_printk("FATAL: Unsupported CR access (LMSW or CLTS)\n");
+			ok = false;
+			goto out;
+		}
+		reg = vmcb->exitinfo1 & 0x07;
+	} else {
+		if (!svm_get_guest_paging_structs(&pg_structs, vmcb)) {
+			ok = false;
+			goto out;
+		}
+		if (!x86_parse_mov_to_cr(cpu_data, &pg_structs, vmcb->rip, 0, &reg)) {
+			panic_printk("FATAL: Unable to parse MOV-to-CR instruction\n");
+			ok = false;
+			goto out;
+		}
+	};
 
 	if (reg == 4)
 		val = vmcb->rsp;
@@ -747,7 +822,8 @@ static bool svm_handle_cr(struct registers *guest_regs,
 	if (val & X86_CR0_PG)
 		update_efer(vmcb);
 
-	return true;
+out:
+	return ok;
 }
 
 static bool svm_handle_msr_read(struct registers *guest_regs, struct per_cpu *cpu_data)
@@ -788,25 +864,6 @@ out:
 	if (result)
 		svm_skip_emulated_instruction(X86_INST_LEN_WRMSR, vmcb);
 	return result;
-}
-
-static bool
-svm_get_guest_paging_structs(struct guest_paging_structures *pg_structs, struct vmcb *vmcb)
-{
-	if (vmcb->efer & EFER_LMA) {
-		pg_structs->root_paging = x86_64_paging;
-		pg_structs->root_table_gphys =
-			vmcb->cr3 & 0x000ffffffffff000UL;
-	} else if ((vmcb->cr0 & X86_CR0_PG) &&
-		   !(vmcb->cr4 & X86_CR4_PAE)) {
-		pg_structs->root_paging = i386_paging;
-		pg_structs->root_table_gphys =
-			vmcb->cr3 & 0xfffff000UL;
-	} else {
-		printk("FATAL: Unsupported paging mode\n");
-		return false;
-	}
-	return true;
 }
 
 /*
