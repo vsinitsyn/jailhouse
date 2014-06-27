@@ -1039,7 +1039,7 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 		case VMEXIT_VMMCALL:
 			svm_handle_hypercall(guest_regs, cpu_data);
 			return;
-		case VMEXIT_CR0_WRITE:
+		case VMEXIT_CR0_SEL_WRITE:
 			cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_CR]++;
 			if (svm_handle_cr(guest_regs, cpu_data))
 				return;
