@@ -789,7 +789,7 @@ static bool svm_handle_cr(struct registers *guest_regs,
 	unsigned long reg, val;
 	bool ok = true;
 
-	if (has_assists) {
+	if (/* has_assists */ 1) {
 		if (!(vmcb->exitinfo1 & (1UL << 63))) {
 			panic_printk("FATAL: Unsupported CR access (LMSW or CLTS)\n");
 			ok = false;
