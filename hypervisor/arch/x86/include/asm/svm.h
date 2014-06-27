@@ -354,7 +354,7 @@ void __attribute__((noreturn)) svm_cpu_activate_vmm(struct per_cpu *cpu_data);
 void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data);
 void svm_entry_failure(struct per_cpu *cpu_data);
 
-void svm_cpu_park(void);
+void svm_cpu_park(struct per_cpu *cpu_data);
 
 void svm_tlb_flush(struct per_cpu *cpu_data);
 
