@@ -1125,7 +1125,21 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 
 void svm_cpu_park(struct per_cpu *cpu_data)
 {
-	asm volatile("hlt" : : : "memory");
+	struct vmcb *vmcb = &cpu_data->vmcb;
+	u8 opcodes[] = {0xfa, 0xf4}; /* cli; hlt */
+	u8 *guest_mem;
+
+	svm_cpu_reset(cpu_data, 0);
+
+	/*
+	 * We need to run CPU parking code in guest mode.
+	 * This is probably a simplest case: 'cli; hlt' is put
+	 * at the [arbitrary] GPA and RIP is set to it.
+	 */
+	guest_mem = page_map_phys2hvirt(arch_page_map_gphys2phys(cpu_data,
+				0xffffffe0, PAGE_DEFAULT_FLAGS));
+	memcpy(guest_mem, opcodes, ARRAY_SIZE(opcodes));
+	vmcb->rip = 0xffffffe0;
 }
 
 void svm_tlb_flush(struct per_cpu *cpu_data)
