@@ -572,8 +572,7 @@ svm_cpu_deactivate_vmm(struct registers *guest_regs, struct per_cpu *cpu_data)
 	__builtin_unreachable();
 }
 
-static void svm_cpu_reset(struct registers *guest_regs,
-			  struct per_cpu *cpu_data, unsigned int sipi_vector)
+static void svm_cpu_reset(struct per_cpu *cpu_data, unsigned int sipi_vector)
 {
 	unsigned long val;
 	bool ok = true;
@@ -660,8 +659,6 @@ static void svm_cpu_reset(struct registers *guest_regs,
 	vmcb->dr7 = 0x00000400;
 
 	ok &= svm_set_cell_config(cpu_data->cell, vmcb);
-
-	memset(guest_regs, 0, sizeof(*guest_regs));
 
 	/* This is always false, but to be consistent with vmx.c... */
 	if (!ok) {
@@ -996,7 +993,8 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 			if (sipi_vector >= 0) {
 				printk("CPU %d received SIPI, vector %x\n",
 						cpu_data->cpu_id, sipi_vector);
-				svm_cpu_reset(guest_regs, cpu_data, sipi_vector);
+				svm_cpu_reset(cpu_data, sipi_vector);
+				memset(guest_regs, 0, sizeof(*guest_regs));
 			}
 			amd_iommu_check_pending_faults(cpu_data);
 			return;
