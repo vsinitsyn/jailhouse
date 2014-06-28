@@ -848,10 +848,11 @@ static bool svm_handle_msr_write(struct registers *guest_regs, struct per_cpu *c
 		result = x2apic_handle_write(guest_regs, cpu_data);
 		goto out;
 	}
-	if (guest_regs->rcx == MSR_EFER &&
-	    !(guest_regs->rax & EFER_SVME)) {
-		panic_printk("Ignoring guest attempt to clear SVME\n");
-		/* TODO: Maybe simple inject #GP or similar into the guest? */
+	if (guest_regs->rcx == MSR_EFER) {
+		/* Never let a guest to disable SVME; see APMv2, Sect. 3.1.7 */
+		vmcb->efer = (guest_regs->rax & 0xffffffff) |
+			(guest_regs->rdx << 32) | EFER_SVME;
+		goto out;
 	}
 
 	result = false;
