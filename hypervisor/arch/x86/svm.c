@@ -1063,8 +1063,10 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 void svm_cpu_park(struct per_cpu *cpu_data)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
+	unsigned long guest_mem = TEMPORARY_MAPPING_CPU_BASE(cpu_data),
+		      target_addr = 0xf000;
 	u8 opcodes[] = {0xfa, 0xf4}; /* cli; hlt */
-	u8 *guest_mem;
+	int err;
 
 	svm_cpu_reset(cpu_data, 0);
 
@@ -1073,9 +1075,19 @@ void svm_cpu_park(struct per_cpu *cpu_data)
 	 * This is probably a simplest case: 'cli; hlt' is put
 	 * at the [arbitrary] GPA and RIP is set to it.
 	 */
-	guest_mem = page_map_phys2hvirt(arch_page_map_gphys2phys(cpu_data, 0xffffffe0));
-	memcpy(guest_mem, opcodes, ARRAY_SIZE(opcodes));
-	vmcb->rip = 0xffffffe0;
+	err = page_map_create(&hv_paging_structs,
+			arch_page_map_gphys2phys(cpu_data, target_addr),
+			PAGE_SIZE, guest_mem, PAGE_DEFAULT_FLAGS,
+			PAGE_MAP_NON_COHERENT);
+	if (!err) {
+		panic_printk("FATAL: Unable to map guest memory at %p\n",
+				target_addr);
+		/* FIXME: What else we can do? */
+		return;
+	}
+	memcpy((u8 *)guest_mem, opcodes, ARRAY_SIZE(opcodes));
+	/* We know CS.base is 0x0000 */
+	vmcb->rip = target_addr;
 }
 
 void svm_tlb_flush(struct per_cpu *cpu_data)
