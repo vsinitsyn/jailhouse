@@ -576,9 +576,9 @@ svm_cpu_deactivate_vmm(struct registers *guest_regs, struct per_cpu *cpu_data)
 
 static void svm_cpu_reset(struct per_cpu *cpu_data, unsigned int sipi_vector)
 {
+	struct vmcb *vmcb = &cpu_data->vmcb;
 	unsigned long val;
 	bool ok = true;
-	struct vmcb *vmcb = &cpu_data->vmcb;
 
 	vmcb->cr0 = X86_CR0_NW | X86_CR0_CD | X86_CR0_ET;
 	vmcb->cr4 = 0;
