@@ -735,46 +735,88 @@ svm_get_guest_paging_structs(struct guest_paging_structures *pg_structs, struct 
 	return true;
 }
 
-static bool x86_parse_mov_to_cr(struct per_cpu *cpu_data,
-		                 struct guest_paging_structures *pg_structs,
-		                 unsigned long rip,
-				 unsigned char reg,
-				 unsigned long *gpr)
+/*
+ * TODO: This is a very likely candidate for merging with mmio.c
+ */
+static inline u8 * map_code_page(struct per_cpu *cpu_data,
+				 struct guest_paging_structures *pg_structs,
+				 unsigned long pc,
+				 u8 *current_page)
 {
+	if (!current_page || !(pc & ~PAGE_MASK))
+		return page_map_get_guest_page(cpu_data, pg_structs,
+			pc, PAGE_READONLY_FLAGS);
+	else
+		return current_page;
+}
+
+static inline u8 * map_code_page_phys(struct per_cpu *cpu_data,
+				      unsigned long pc,
+				      u8 *current_page)
+{
+	unsigned long guest_mem = TEMPORARY_MAPPING_CPU_BASE(cpu_data);
+	int err;
+
+	if (!current_page || !(pc & ~PAGE_MASK)) {
+		err = page_map_create(&hv_paging_structs,
+			arch_page_map_gphys2phys(cpu_data, pc),
+			PAGE_SIZE, guest_mem, PAGE_DEFAULT_FLAGS,
+			PAGE_MAP_NON_COHERENT);
+		return (err ? NULL : (u8 *)guest_mem);
+	} else
+		return current_page;
+}
+
+static bool x86_parse_mov_to_cr(struct per_cpu *cpu_data,
+				unsigned long pc,
+				unsigned char reg,
+				unsigned long *gpr)
+{
+	struct vmcb *vmcb = &cpu_data->vmcb;
+	struct guest_paging_structures pg_structs;
 	/* No prefixes are supported yet */
 	u8 opcodes[] = {0x0f, 0x22};
-	u8 *guest_page, modrm;
+	u8 *guest_page = NULL, modrm;
+	bool paged_mode = vmcb->cr0 & X86_CR0_PG, ok = false;
 	int n;
-	bool ok = true;
 
-	guest_page = page_map_get_guest_page(cpu_data, pg_structs,
-			rip, PAGE_READONLY_FLAGS);
-
-	for (n = 0; n < ARRAY_SIZE(opcodes); n++, rip++) {
-		if (guest_page[rip & PAGE_OFFS_MASK] != opcodes[n]) {
-			ok = false;
+	if (paged_mode) {
+		if (!svm_get_guest_paging_structs(&pg_structs, vmcb))
 			goto out;
-		}
-
-		if (!(rip & ~PAGE_MASK))
-			guest_page = page_map_get_guest_page(cpu_data,
-					pg_structs, rip, PAGE_READONLY_FLAGS);
-	}
-
-	if (!(rip & ~PAGE_MASK))
-		guest_page = page_map_get_guest_page(cpu_data,
-				pg_structs, rip, PAGE_READONLY_FLAGS);
-
-	modrm = guest_page[rip & PAGE_OFFS_MASK];
-
-	if (((modrm & 0x1c) >> 2) != reg) {
-		ok = false;
+		guest_page = map_code_page(cpu_data, &pg_structs, pc, guest_page);
+	} else
+		guest_page = map_code_page_phys(cpu_data, vmcb->cs.base + pc, guest_page);
+	if (!guest_page)
 		goto out;
+
+	for (n = 0; n < ARRAY_SIZE(opcodes); n++, pc++) {
+		if (guest_page[pc & PAGE_OFFS_MASK] != opcodes[n])
+			goto out;
+
+		if (paged_mode)
+			guest_page = map_code_page(cpu_data, &pg_structs, pc, guest_page);
+		else
+			guest_page = map_code_page_phys(cpu_data, vmcb->cs.base + pc, guest_page);
+		if (!guest_page)
+			goto out;
 	}
+
+	if (paged_mode)
+		guest_page = map_code_page(cpu_data, &pg_structs, pc, guest_page);
+	else
+		guest_page = map_code_page_phys(cpu_data, vmcb->cs.base + pc, guest_page);
+	if (!guest_page)
+		goto out;
+
+	modrm = guest_page[pc & PAGE_OFFS_MASK];
+
+	if (((modrm & 0x1c) >> 2) != reg)
+		goto out;
 
 	if (gpr)
-		*gpr = ((modrm & 0xe0) >> 5);
+		*gpr = (modrm & 0x3);
 
+	ok = true;
 out:
 	return ok;
 }
@@ -783,11 +825,10 @@ static bool svm_handle_cr(struct registers *guest_regs,
 			  struct per_cpu *cpu_data)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
-	struct guest_paging_structures pg_structs;
 	unsigned long reg, val;
 	bool ok = true;
 
-	if (/* has_assists */ 1) {
+	if (has_assists) {
 		if (!(vmcb->exitinfo1 & (1UL << 63))) {
 			panic_printk("FATAL: Unsupported CR access (LMSW or CLTS)\n");
 			ok = false;
@@ -795,11 +836,7 @@ static bool svm_handle_cr(struct registers *guest_regs,
 		}
 		reg = vmcb->exitinfo1 & 0x07;
 	} else {
-		if (!svm_get_guest_paging_structs(&pg_structs, vmcb)) {
-			ok = false;
-			goto out;
-		}
-		if (!x86_parse_mov_to_cr(cpu_data, &pg_structs, vmcb->rip, 0, &reg)) {
+		if (!x86_parse_mov_to_cr(cpu_data, vmcb->rip, 0, &reg)) {
 			panic_printk("FATAL: Unable to parse MOV-to-CR instruction\n");
 			ok = false;
 			goto out;
