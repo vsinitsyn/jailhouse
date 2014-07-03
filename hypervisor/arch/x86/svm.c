@@ -721,37 +721,37 @@ static void svm_handle_hypercall(struct registers *guest_regs,
 	if ((!(vmcb->efer & EFER_LMA) &&
 	      vmcb->rflags & X86_RFLAGS_VM) ||
 	     (vmcb->cs.selector & 3) != 0) {
-		vmcb->rax = -EPERM;
+		guest_regs->rax = -EPERM;
 		return;
 	}
 
-	switch (vmcb->rax) {
+	switch (guest_regs->rax) {
 		case JAILHOUSE_HC_DISABLE:
-			vmcb->rax = shutdown(cpu_data);
-			if (vmcb->rax == 0)
+			guest_regs->rax = shutdown(cpu_data);
+			if (guest_regs->rax == 0)
 				svm_cpu_deactivate_vmm(guest_regs, cpu_data);
 			break;
 		case JAILHOUSE_HC_CELL_CREATE:
-			vmcb->rax = cell_create(cpu_data, guest_regs->rdi);
+			guest_regs->rax = cell_create(cpu_data, guest_regs->rdi);
 			break;
 		case JAILHOUSE_HC_CELL_DESTROY:
-			vmcb->rax = cell_destroy(cpu_data, guest_regs->rdi);
+			guest_regs->rax = cell_destroy(cpu_data, guest_regs->rdi);
 			break;
 		case JAILHOUSE_HC_HYPERVISOR_GET_INFO:
-			vmcb->rax = hypervisor_get_info(cpu_data,
+			guest_regs->rax = hypervisor_get_info(cpu_data,
 					guest_regs->rdi);
 			break;
 		case JAILHOUSE_HC_CELL_GET_STATE:
-			vmcb->rax = cell_get_state(cpu_data, guest_regs->rdi);
+			guest_regs->rax = cell_get_state(cpu_data, guest_regs->rdi);
 			break;
 		case JAILHOUSE_HC_CPU_GET_STATE:
-			vmcb->rax = cpu_get_state(cpu_data, guest_regs->rdi);
+			guest_regs->rax = cpu_get_state(cpu_data, guest_regs->rdi);
 			break;
 		default:
 			printk("CPU %d: Unknown vmcall %d, RIP: %p\n",
-					cpu_data->cpu_id, vmcb->rax,
+					cpu_data->cpu_id, guest_regs->rax,
 					vmcb->rip - X86_INST_LEN_VMCALL);
-			vmcb->rax = -ENOSYS;
+			guest_regs->rax = -ENOSYS;
 			break;
 	}
 }
