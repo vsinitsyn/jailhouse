@@ -273,7 +273,7 @@ int svm_init(void)
 		memset(msrpm[SVM_MSRPM_0000], 0, sizeof(msrpm[SVM_MSRPM_0000]));
 		msrpm[SVM_MSRPM_0000][0x830/4] = 0x02;
 	} else {
-		if (!has_avic) {
+		if (has_avic) {
 			avic_page = page_alloc(&remap_pool, 1);
 			if (!avic_page)
 				return -ENOMEM;
@@ -298,7 +298,7 @@ int svm_cell_init(struct cell *cell)
 	u32 size;
 	u64 flags;
 
-	/* build root cell EPT */
+	/* build root cell NPT */
 	cell->svm.npt_structs.root_paging = npt_paging;
 	cell->svm.npt_structs.root_table = page_alloc(&mem_pool, 1);
 	if (!cell->svm.npt_structs.root_table)
@@ -330,8 +330,8 @@ int svm_cell_init(struct cell *cell)
 		flags = PAGE_DEFAULT_FLAGS | PAGE_FLAG_UNCACHED;
 		err = page_map_create(&cell->svm.npt_structs,
 				      page_map_hvirt2phys(avic_page),
-				      flags,
 				      PAGE_SIZE, XAPIC_BASE,
+				      flags,
 				      PAGE_MAP_NON_COHERENT);
 	}
 
@@ -817,7 +817,7 @@ static bool x86_parse_mov_to_cr(struct per_cpu *cpu_data,
 	/* No prefixes are supported yet */
 	u8 opcodes[] = {0x0f, 0x22};
 	u8 *guest_page = NULL, modrm;
-	bool paged_mode = vmcb->cr0 & X86_CR0_PG, ok = false;
+	bool paged_mode = !!(vmcb->cr0 & X86_CR0_PG), ok = false;
 	int n;
 
 	if (paged_mode) {
