@@ -724,7 +724,7 @@ static void svm_handle_hypercall(struct registers *guest_regs,
 	if ((!(vmcb->efer & EFER_LMA) &&
 	      vmcb->rflags & X86_RFLAGS_VM) ||
 	     (vmcb->cs.selector & 3) != 0) {
-		vmcb->rax = -EPERM;
+		guest_regs->rax = -EPERM;
 		return;
 	}
 
