@@ -74,6 +74,16 @@ static u8 __attribute__((aligned(PAGE_SIZE))) msrpm[][0x2000/4] = {
 	}
 };
 
+/* This page is mapped so the code begins at 0xfffffff0 */
+static u8 __attribute__((aligned(PAGE_SIZE))) parking_code[PAGE_SIZE] = {
+	[ 0xff0 ] = 0xfa, /* 1: cli */
+	[ 0xff1 ] = 0xf4, /*    hlt */
+	[ 0xff2 ] = 0xeb,
+	[ 0xff3 ] = 0xfc  /*    jmp 1b */
+};
+
+void *parking_root;
+
 void *avic_page;
 
 static int svm_check_features(void)
@@ -226,6 +236,7 @@ static void npt_set_next_pt(pt_entry_t pte, unsigned long next_pt)
 
 int svm_init(void)
 {
+	struct paging_structures parking_pt;
 	unsigned long vm_cr;
 	int err, n;
 
@@ -242,6 +253,18 @@ int svm_init(void)
 	memcpy(npt_paging, x86_64_paging, sizeof(npt_paging));
 	for(n = 0; n < NPT_PAGE_DIR_LEVELS; n++)
 		npt_paging[n].set_next_pt = npt_set_next_pt;
+
+	/* Map guest parking code (shared between cells and CPUs) */
+	parking_pt.root_paging = npt_paging;
+	parking_pt.root_table = parking_root = page_alloc(&mem_pool, 1);
+	if (!parking_root)
+		return -ENOMEM;
+	err = page_map_create(&parking_pt, page_map_hvirt2phys(parking_code),
+			PAGE_SIZE, 0xfffff000,
+			PAGE_READONLY_FLAGS | PAGE_FLAG_US,
+			PAGE_MAP_NON_COHERENT);
+	if (err)
+		return err;
 
 	/* This is always false for AMD now (except in nested SVM);
 	   see Sect. 16.3.1 in APMv2 */
@@ -1100,31 +1123,15 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 void svm_cpu_park(struct per_cpu *cpu_data)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
-	unsigned long guest_mem = TEMPORARY_MAPPING_CPU_BASE(cpu_data),
-		      target_addr = 0xf000;
-	u8 opcodes[] = {0xfa, 0xf4}; /* cli; hlt */
-	int err;
 
 	svm_cpu_reset(cpu_data, 0);
 
-	/*
-	 * We need to run CPU parking code in guest mode.
-	 * This is probably a simplest case: 'cli; hlt' is put
-	 * at the [arbitrary] GPA and RIP is set to it.
-	 */
-	err = page_map_create(&hv_paging_structs,
-			arch_page_map_gphys2phys(cpu_data, target_addr),
-			PAGE_SIZE, guest_mem, PAGE_DEFAULT_FLAGS,
-			PAGE_MAP_NON_COHERENT);
-	if (!err) {
-		panic_printk("FATAL: Unable to map guest memory at %p\n",
-				target_addr);
-		/* FIXME: What else we can do? */
-		return;
-	}
-	memcpy((u8 *)guest_mem, opcodes, ARRAY_SIZE(opcodes));
-	/* We know CS.base is 0x0000 */
-	vmcb->rip = target_addr;
+	/* The guest resumes at reset vector */
+	vmcb->cs.selector = 0xf000;
+	vmcb->cs.base = 0xffff0000;
+	vmcb->rip = 0xfff0;
+
+	vmcb->n_cr3 = page_map_hvirt2phys(parking_root);
 }
 
 void svm_tlb_flush(struct per_cpu *cpu_data)
