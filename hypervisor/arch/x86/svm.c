@@ -850,11 +850,11 @@ static bool x86_parse_mov_to_cr(struct per_cpu *cpu_data,
 
 	modrm = guest_page[pc & PAGE_OFFS_MASK];
 
-	if (((modrm & 0x1c) >> 2) != reg)
+	if (((modrm & 0x38) >> 3) != reg)
 		goto out;
 
 	if (gpr)
-		*gpr = (modrm & 0x3);
+		*gpr = (modrm & 0x7);
 
 	ok = true;
 out:
