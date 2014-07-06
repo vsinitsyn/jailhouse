@@ -68,7 +68,7 @@ static inline void write_msr(unsigned int msr, unsigned long val)
 
 static inline void write_idtr(struct desc_table_reg *val)
 {
-	asm volatile("lidtq %0" : "=m" (*val));
+	asm volatile("lidtq %0" : : "m" (*val));
 }
 
 void irq_handler(void)
