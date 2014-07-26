@@ -34,6 +34,13 @@
 
 extern bool decode_assists;
 
+struct svm_segment {
+	u16 selector;
+	u16 access_rights;
+	u32 limit;
+	u64 base;
+} __attribute__((packed));
+
 /* This comes from the Xvisor's amd_vmcb.h (adapted) */
 
 /* general 1 intercepts */
@@ -279,16 +286,16 @@ struct vmcb {
 	u8 guest_bytes[15];
 	u64 res10a[100];		/* offset 0xE0 pad to save area */
 
-	struct segment es;		/* offset 1024 */
-	struct segment cs;
-	struct segment ss;
-	struct segment ds;
-	struct segment fs;
-	struct segment gs;
-	struct segment gdtr;
-	struct segment ldtr;
-	struct segment idtr;
-	struct segment tr;
+	struct svm_segment es;		/* offset 1024 */
+	struct svm_segment cs;
+	struct svm_segment ss;
+	struct svm_segment ds;
+	struct svm_segment fs;
+	struct svm_segment gs;
+	struct svm_segment gdtr;
+	struct svm_segment ldtr;
+	struct svm_segment idtr;
+	struct svm_segment tr;
 
 	u64 res10[5];
 	u8 res11[3];

@@ -40,9 +40,7 @@ bool has_avic = false;
 
 static u32 current_asid = 1; /* ASID 0 is for host mode */
 
-static const struct segment invalid_seg = {
-	.access_rights = 0x0000
-};
+static const struct segment invalid_seg = { 0 };
 
 static struct paging npt_paging[NPT_PAGE_DIR_LEVELS];
 
@@ -105,14 +103,36 @@ static int svm_check_features(void)
 	return 0;
 }
 
-static void svm_set_guest_segment_from_dtr(struct segment *segment, struct desc_table_reg *dtr)
+static void svm_set_svm_segment_from_dtr(struct svm_segment *svm_segment,
+		                          const struct desc_table_reg *dtr)
 {
-	struct segment tmp = { 0 };
+	struct svm_segment tmp = { 0 };
 
-	if (dtr)
+	if (dtr) {
+		tmp.base = dtr->base;
 		tmp.limit = dtr->limit & 0xffff;
+	}
 
-	*segment = tmp;
+	*svm_segment = tmp;
+}
+
+/* TODO: struct segment needs to be x86 generic, not VMX-specific one here */
+static void svm_set_svm_segment_from_segment(struct svm_segment *svm_segment,
+		                              const struct segment *segment)
+{
+	u32 ar;
+
+	svm_segment->selector = segment->selector;
+
+	if (segment->access_rights == 0x10000)
+		svm_segment->access_rights = 0;
+	else {
+		ar = segment->access_rights;
+		svm_segment->access_rights = ((ar & 0xf000) >> 4) | (ar & 0x00ff);
+	}
+
+	svm_segment->limit = segment->limit;
+	svm_segment->base = segment->base;
 }
 
 static bool svm_set_cell_config(struct cell *cell, struct vmcb *vmcb)
@@ -139,17 +159,16 @@ static int vmcb_setup(struct per_cpu *cpu_data)
 	vmcb->cr3 = read_cr3();
 	vmcb->cr4 = read_cr4();
 
-	vmcb->cs = cpu_data->linux_cs;
-	vmcb->ds = cpu_data->linux_ds;
-	vmcb->es = cpu_data->linux_es;
-	vmcb->fs = cpu_data->linux_fs;
-	vmcb->gs = cpu_data->linux_gs;
-	vmcb->ss = invalid_seg;
-	vmcb->tr = cpu_data->linux_tss;
+	svm_set_svm_segment_from_segment(&vmcb->cs, &cpu_data->linux_cs);
+	svm_set_svm_segment_from_segment(&vmcb->ds, &cpu_data->linux_ds);
+	svm_set_svm_segment_from_segment(&vmcb->es, &cpu_data->linux_es);
+	svm_set_svm_segment_from_segment(&vmcb->fs, &cpu_data->linux_fs);
+	svm_set_svm_segment_from_segment(&vmcb->ss, &invalid_seg);
+	svm_set_svm_segment_from_segment(&vmcb->tr, &cpu_data->linux_tss);
 
-	svm_set_guest_segment_from_dtr(&vmcb->ldtr, NULL);
-	svm_set_guest_segment_from_dtr(&vmcb->gdtr, &cpu_data->linux_gdtr);
-	svm_set_guest_segment_from_dtr(&vmcb->idtr, &cpu_data->linux_idtr);
+	svm_set_svm_segment_from_dtr(&vmcb->ldtr, NULL);
+	svm_set_svm_segment_from_dtr(&vmcb->gdtr, &cpu_data->linux_gdtr);
+	svm_set_svm_segment_from_dtr(&vmcb->idtr, &cpu_data->linux_idtr);
 
 	vmcb->cpl = 0; /* Linux runs in ring 0 before migration */
 
