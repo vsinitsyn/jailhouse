@@ -28,7 +28,7 @@
 #define SVM_MSRPM_0000		0
 #define SVM_MSRPM_C000		1
 #define SVM_MSRPM_C001		2
-#define SVM_MSRPM_RESV		2
+#define SVM_MSRPM_RESV		3
 
 #define NPT_PAGE_DIR_LEVELS	4
 
@@ -275,8 +275,8 @@ struct vmcb {
 	lbrctrl_t lbr_control;		/* offset 0xB8 */
 	u64 res09;			/* offset 0xC0 */
 	u64 nextrip;			/* offset 0xC8 */
-	u8 guest_bytes[15];             /* offset 0xD0 */
-	u8 bytes_fetched;
+	u8 bytes_fetched;		/* offset 0xD0 */
+	u8 guest_bytes[15];
 	u64 res10a[100];		/* offset 0xE0 pad to save area */
 
 	struct segment es;		/* offset 1024 */
