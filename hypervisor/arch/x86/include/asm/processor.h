@@ -120,16 +120,7 @@ struct desc_table_reg {
 struct segment {
 	u64 base;
 	u32 limit;
-/*
- * FIXME: These #ifdef doesn't belong here. We need a generic struct segment for x86
- * (with 16-bit access rights) that is converted to VMX/SVM one in the vmx.c/svm.c.
- */
-#ifdef ENABLE_VMX
 	u32 access_rights;
-#endif
-#ifdef ENABLE_SVM
-	u16 access_rights;
-#endif
 	u16 selector;
 };
 
