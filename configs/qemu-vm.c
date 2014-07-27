@@ -39,7 +39,7 @@ struct {
 			.size = 0x2000,
 		},
 		.platform_info.x86 = {
-			.pm_timer_address = 0x608,
+			.pm_timer_address = 0xb008,
 		},
 		.root_cell = {
 			.name = "QEMU Linux VM",
