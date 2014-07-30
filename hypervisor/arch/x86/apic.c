@@ -10,8 +10,6 @@
  * the COPYING file in the top-level directory.
  */
 
-#include <jailhouse/config.h>
-
 #include <jailhouse/processor.h>
 #include <jailhouse/paging.h>
 #include <jailhouse/printk.h>
