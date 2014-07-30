@@ -29,7 +29,7 @@ endef
 modules:
 	$(run-kbuild)
 
-hypervisor/jailhouse.bin: modules
+hypervisor/jailhouse*.bin: modules
 
 # recursive build of tools
 tools:
@@ -43,7 +43,7 @@ clean:
 modules_install: modules
 	$(run-kbuild)
 
-firmware_install: hypervisor/jailhouse.bin $(DESTDIR)$(firmwaredir)
+firmware_install: hypervisor/jailhouse*.bin $(DESTDIR)$(firmwaredir)
 	$(INSTALL_DATA) $^
 
 install: modules_install firmware_install
