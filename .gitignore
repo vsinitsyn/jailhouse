@@ -9,6 +9,7 @@ Module.symvers
 modules.order
 jailhouse.ko
 jailhouse-version.h
+hypervisor/include/jailhouse/config.h
 hypervisor/include/jailhouse/version.h
 hypervisor/hypervisor.lds
 tools/jailhouse

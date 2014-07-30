@@ -12,8 +12,6 @@
 
 #include <asm/percpu.h>
 
-#include <jailhouse/config.h>
-
 /* Entry point for Linux loader module on JAILHOUSE_ENABLE */
 	.text
 	.globl arch_entry
