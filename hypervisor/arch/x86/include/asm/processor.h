@@ -13,8 +13,6 @@
 #ifndef _JAILHOUSE_ASM_PROCESSOR_H
 #define _JAILHOUSE_ASM_PROCESSOR_H
 
-#include <jailhouse/config.h>
-
 #include <asm/types.h>
 
 #define X86_FEATURE_VMX					(1 << 5)
