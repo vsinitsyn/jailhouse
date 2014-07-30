@@ -27,7 +27,7 @@ modules modules_install clean:
 	$(MAKE) -C $(KERNELDIR) SUBDIRS=`pwd` $@
 
 firmware_install:
-	cp hypervisor/jailhouse.bin /lib/firmware/
+	cp hypervisor/jailhouse*.bin /lib/firmware/
 
 install: modules_install firmware_install
 	depmod -aq
