@@ -76,7 +76,12 @@ static const struct sysfs_ops cell_sysfs_ops = {
 #endif /* < 3.14 */
 /* End of compatibility section - remove as version become obsolete */
 
+#ifdef CONFIG_X86
+#define JAILHOUSE_AMD_FW_NAME	"jailhouse-amd.bin"
+#define JAILHOUSE_INTEL_FW_NAME	"jailhouse-intel.bin"
+#else
 #define JAILHOUSE_FW_NAME	"jailhouse.bin"
+#endif
 
 struct cell {
 	struct kobject kobj;
@@ -89,7 +94,12 @@ struct cell {
 
 MODULE_DESCRIPTION("Loader for Jailhouse partitioning hypervisor");
 MODULE_LICENSE("GPL");
+#ifdef CONFIG_X86
+MODULE_FIRMWARE(JAILHOUSE_AMD_FW_NAME);
+MODULE_FIRMWARE(JAILHOUSE_INTEL_FW_NAME);
+#else
 MODULE_FIRMWARE(JAILHOUSE_FW_NAME);
+#endif
 
 static struct device *jailhouse_dev;
 static DEFINE_MUTEX(lock);
@@ -369,6 +379,19 @@ static void enter_hypervisor(void *info)
 	atomic_inc(&call_done);
 }
 
+static inline const char * jailhouse_fw_name(void)
+{
+#ifdef CONFIG_X86
+	if (boot_cpu_has(X86_FEATURE_SVM))
+		return JAILHOUSE_AMD_FW_NAME;
+	if (boot_cpu_has(X86_FEATURE_VMX))
+		return JAILHOUSE_INTEL_FW_NAME;
+	return NULL;
+#else
+	return JAILHOUSE_FW_NAME;
+#endif
+}
+
 static int jailhouse_enable(struct jailhouse_system __user *arg)
 {
 	const struct firmware *hypervisor;
@@ -378,6 +401,13 @@ static int jailhouse_enable(struct jailhouse_system __user *arg)
 	struct jailhouse_header *header;
 	unsigned long config_size;
 	int err;
+	const char *fw_name = jailhouse_fw_name();
+
+	fw_name = jailhouse_fw_name();
+	if (!fw_name) {
+		pr_err("jailhouse: Missing or unsupported HVM technology\n");
+		return -ENODEV;
+	}
 
 	if (copy_from_user(&config_header, arg, sizeof(config_header)))
 		return -EFAULT;
@@ -390,10 +420,9 @@ static int jailhouse_enable(struct jailhouse_system __user *arg)
 	if (enabled || !try_module_get(THIS_MODULE))
 		goto error_unlock;
 
-	err = request_firmware(&hypervisor, JAILHOUSE_FW_NAME, jailhouse_dev);
+	err = request_firmware(&hypervisor, fw_name, jailhouse_dev);
 	if (err) {
-		pr_err("jailhouse: Missing hypervisor image %s\n",
-		       JAILHOUSE_FW_NAME);
+		pr_err("jailhouse: Missing hypervisor image %s\n", fw_name);
 		goto error_put_module;
 	}
 
