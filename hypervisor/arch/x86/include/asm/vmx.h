@@ -308,7 +308,8 @@ void vmx_entry_failure(struct per_cpu *cpu_data);
 
 void vmx_tlb_flush(struct per_cpu *cpu_data);
 
-void vmx_schedule_vmexit(struct per_cpu *cpu_data);
 void vmx_cpu_park(struct per_cpu *cpu_data);
+
+void vmx_nmi_handler(struct per_cpu *cpu_data);
 
 #endif

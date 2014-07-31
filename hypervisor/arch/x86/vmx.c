@@ -831,7 +831,7 @@ static void vmx_cpu_reset(struct per_cpu *cpu_data, unsigned int sipi_vector)
 	}
 }
 
-void vmx_schedule_vmexit(struct per_cpu *cpu_data)
+static void vmx_schedule_vmexit(struct per_cpu *cpu_data)
 {
 	u32 pin_based_ctrl;
 
@@ -847,6 +847,11 @@ void vmx_cpu_park(struct per_cpu *cpu_data)
 {
 	vmx_cpu_reset(cpu_data, 0);
 	vmcs_write32(GUEST_ACTIVITY_STATE, GUEST_ACTIVITY_HLT);
+}
+
+void vmx_nmi_handler(struct per_cpu *cpu_data)
+{
+	vmx_schedule_vmexit(cpu_data);
 }
 
 static void vmx_disable_preemption_timer(void)
