@@ -1203,6 +1203,11 @@ void svm_cpu_park(struct per_cpu *cpu_data)
 	vmcb->n_cr3 = page_map_hvirt2phys(parking_root);
 }
 
+void svm_nmi_handler(struct per_cpu *cpu_data)
+{
+	printk("Consuming pending NMI on CPU %d\n", cpu_data->cpu_id);
+}
+
 void svm_tlb_flush(struct per_cpu *cpu_data)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;

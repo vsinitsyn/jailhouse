@@ -111,29 +111,6 @@ static void read_descriptor(struct per_cpu *cpu_data, struct segment *seg)
 	}
 }
 
-#ifdef ENABLE_VMX
-static void set_cs(u16 cs)
-{
-	struct farptr jmp_target;
-	unsigned long tmp;
-
-	jmp_target.seg = cs;
-	asm volatile(
-		"lea 1f(%%rip),%0\n\t"
-		"mov %0,%1\n\t"
-		"rex64/ljmp *%2\n\t"
-		"1:"
-		: "=r" (tmp) : "m" (jmp_target.offs), "m" (jmp_target));
-}
-#endif
-
-/*
- * No 'u64 offset' for ljmp on AMD64, and rex64 prefix does nothing.
- *
- * TODO: Can we do it the same way on Intel, too, and remove these
- * #ifdefs altogether?
- */
-#ifdef ENABLE_SVM
 static void set_cs(u16 cs)
 {
 	asm volatile(
@@ -144,7 +121,6 @@ static void set_cs(u16 cs)
 		"1:"
 		: : "m" (cs) : "rax");
 }
-#endif
 
 int arch_cpu_init(struct per_cpu *cpu_data)
 {
