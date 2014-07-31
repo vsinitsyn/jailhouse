@@ -156,15 +156,6 @@ void apic_send_nmi_ipi(struct per_cpu *target_data)
 			  APIC_ICR_SH_NONE);
 }
 
-void apic_nmi_handler(struct per_cpu *cpu_data)
-{
-#ifdef ENABLE_VMX
-	vmx_schedule_vmexit(cpu_data);
-#else
-	printk("Consuming pending NMI on CPU %d\n", cpu_data->cpu_id);
-#endif
-}
-
 void apic_irq_handler(struct per_cpu *cpu_data)
 {
 	apic_ops.write(APIC_REG_EOI, APIC_EOI_ACK);

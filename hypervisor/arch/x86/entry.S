@@ -11,6 +11,7 @@
  */
 
 #include <asm/percpu.h>
+/* This will go away when we move to link-time decisions */
 
 /* Entry point for Linux loader module on JAILHOUSE_ENABLE */
 	.text
@@ -122,10 +123,16 @@ vector=10
 	iretq
 .endm
 
+/* XXX: These #ifdefs will go away as soon as we move to link-time decisions */
 	.global nmi_entry
 	.balign 16
 nmi_entry:
-	interrupt_entry apic_nmi_handler
+#ifdef ENABLE_VMX
+	interrupt_entry vmx_nmi_handler
+#endif
+#ifdef ENABLE_SVM
+	interrupt_entry svm_nmi_handler
+#endif
 
 	.global irq_entry
 	.balign 16
