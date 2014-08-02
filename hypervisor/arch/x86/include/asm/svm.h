@@ -13,11 +13,7 @@
 #ifndef _JAILHOUSE_ASM_SVM_H
 #define _JAILHOUSE_ASM_SVM_H
 
-#include <asm/percpu.h>
-#include <asm/processor.h>
 #include <asm/types.h>
-
-#include <jailhouse/cell-config.h>
 
 #define EFER_SVME		(1UL << 12)
 #define VM_CR_SVMDIS		(1UL << 4)
@@ -335,26 +331,5 @@ struct vmcb {
 	u64 lastinttoip;
 	u64 res16[301];
 } __attribute__((packed));
-
-int svm_init(void);
-
-int svm_cell_init(struct cell *cell);
-int svm_map_memory_region(struct cell *cell,
-			  const struct jailhouse_memory *mem);
-int svm_unmap_memory_region(struct cell *cell,
-			    const struct jailhouse_memory *mem);
-void svm_cell_exit(struct cell *cell);
-
-int svm_cpu_init(struct per_cpu *cpu_data);
-void svm_cpu_exit(struct per_cpu *cpu_data);
-
-void __attribute__((noreturn)) svm_cpu_activate_vmm(struct per_cpu *cpu_data);
-void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data);
-
-void svm_cpu_park(struct per_cpu *cpu_data);
-
-void svm_nmi_handler(struct per_cpu *cpu_data);
-
-void svm_tlb_flush(struct per_cpu *cpu_data);
 
 #endif

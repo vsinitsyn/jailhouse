@@ -1,7 +1,7 @@
 /*
  * Jailhouse, a Linux-based partitioning hypervisor
  *
- * Copyright (c) Siemens AG, 2013
+ * Copyright (c) Valentine Sinitsyn, 2014
  *
  * Authors:
  *  Valentine Sinitsyn <valentine.sinitsyn@gmail.com>
@@ -13,27 +13,10 @@
 #ifndef _JAILHOUSE_ASM_AMD_IOMMU_H
 #define _JAILHOUSE_ASM_AMD_IOMMU_H
 
-#include <jailhouse/pci.h>
-
-#include <asm/cell.h>
-
-#include <jailhouse/cell-config.h>
-
-int amd_iommu_init(void);
-
-int amd_iommu_cell_init(struct cell *cell);
-int amd_iommu_map_memory_region(struct cell *cell,
-			  const struct jailhouse_memory *mem);
-int amd_iommu_unmap_memory_region(struct cell *cell,
-			    const struct jailhouse_memory *mem);
-int amd_iommu_add_pci_device(struct cell *cell, struct pci_device *device);
-void amd_iommu_remove_pci_device(struct pci_device *device);
-void amd_iommu_cell_exit(struct cell *cell);
-
-void amd_iommu_config_commit(struct cell *cell_added_removed);
-
-void amd_iommu_shutdown(void);
-
-void amd_iommu_check_pending_faults(struct per_cpu *cpu_data);
+/*
+ * There is nothing in this file yet, since AMD IOMMU support is missing.
+ * It is assumed that AMD IOMMU-specific constants and definitions will
+ * appear here someday.
+ */
 
 #endif
