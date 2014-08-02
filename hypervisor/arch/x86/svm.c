@@ -2,11 +2,13 @@
  * Jailhouse, a Linux-based partitioning hypervisor
  *
  * Copyright (c) Siemens AG, 2013
+ * Copyright (c) Valentine Sinitsyn, 2014
  *
  * Authors:
+ *  Jan Kiszka <jan.kiszka@siemens.com>
  *  Valentine Sinitsyn <valentine.sinitsyn@gmail.com>
  *
- * Based on vmx.c written by Jan Kiszka <jan.kiszka@siemens.com>
+ * Based on vmx.c written by Jan Kiszka.
  *
  * This work is licensed under the terms of the GNU GPL, version 2.  See
  * the COPYING file in the top-level directory.
@@ -28,10 +30,12 @@
 #include <asm/atomic.h>
 #include <asm/control.h>
 #include <asm/ioapic.h>
+#include <asm/iommu.h>
 #include <asm/paging.h>
 #include <asm/pci.h>
 #include <asm/percpu.h>
 #include <asm/svm.h>
+#include <asm/vcpu.h>
 
 #define SVM_CR0_CLEARED_BITS	(~(X86_CR0_CD | X86_CR0_NW))
 
@@ -110,7 +114,7 @@ static int svm_check_features(void)
 	return 0;
 }
 
-static void svm_set_svm_segment_from_dtr(struct svm_segment *svm_segment,
+static void set_svm_segment_from_dtr(struct svm_segment *svm_segment,
 		                          const struct desc_table_reg *dtr)
 {
 	struct svm_segment tmp = { 0 };
@@ -124,7 +128,7 @@ static void svm_set_svm_segment_from_dtr(struct svm_segment *svm_segment,
 }
 
 /* TODO: struct segment needs to be x86 generic, not VMX-specific one here */
-static void svm_set_svm_segment_from_segment(struct svm_segment *svm_segment,
+static void set_svm_segment_from_segment(struct svm_segment *svm_segment,
 		                              const struct segment *segment)
 {
 	u32 ar;
@@ -142,7 +146,7 @@ static void svm_set_svm_segment_from_segment(struct svm_segment *svm_segment,
 	svm_segment->base = segment->base;
 }
 
-static bool svm_set_cell_config(struct cell *cell, struct vmcb *vmcb)
+static bool vcpu_set_cell_config(struct cell *cell, struct vmcb *vmcb)
 {
 	/* No real need for this function; used for consistency with vmx.c */
 	vmcb->iopm_base_pa = page_map_hvirt2phys(cell->svm.iopm);
@@ -166,17 +170,17 @@ static int vmcb_setup(struct per_cpu *cpu_data)
 	vmcb->cr3 = cpu_data->linux_cr3;
 	vmcb->cr4 = read_cr4();
 
-	svm_set_svm_segment_from_segment(&vmcb->cs, &cpu_data->linux_cs);
-	svm_set_svm_segment_from_segment(&vmcb->ds, &cpu_data->linux_ds);
-	svm_set_svm_segment_from_segment(&vmcb->es, &cpu_data->linux_es);
-	svm_set_svm_segment_from_segment(&vmcb->fs, &cpu_data->linux_fs);
-	svm_set_svm_segment_from_segment(&vmcb->gs, &cpu_data->linux_gs);
-	svm_set_svm_segment_from_segment(&vmcb->ss, &invalid_seg);
-	svm_set_svm_segment_from_segment(&vmcb->tr, &cpu_data->linux_tss);
+	set_svm_segment_from_segment(&vmcb->cs, &cpu_data->linux_cs);
+	set_svm_segment_from_segment(&vmcb->ds, &cpu_data->linux_ds);
+	set_svm_segment_from_segment(&vmcb->es, &cpu_data->linux_es);
+	set_svm_segment_from_segment(&vmcb->fs, &cpu_data->linux_fs);
+	set_svm_segment_from_segment(&vmcb->gs, &cpu_data->linux_gs);
+	set_svm_segment_from_segment(&vmcb->ss, &invalid_seg);
+	set_svm_segment_from_segment(&vmcb->tr, &cpu_data->linux_tss);
 
-	svm_set_svm_segment_from_dtr(&vmcb->ldtr, NULL);
-	svm_set_svm_segment_from_dtr(&vmcb->gdtr, &cpu_data->linux_gdtr);
-	svm_set_svm_segment_from_dtr(&vmcb->idtr, &cpu_data->linux_idtr);
+	set_svm_segment_from_dtr(&vmcb->ldtr, NULL);
+	set_svm_segment_from_dtr(&vmcb->gdtr, &cpu_data->linux_gdtr);
+	set_svm_segment_from_dtr(&vmcb->idtr, &cpu_data->linux_idtr);
 
 	vmcb->cpl = 0; /* Linux runs in ring 0 before migration */
 
@@ -221,7 +225,7 @@ static int vmcb_setup(struct per_cpu *cpu_data)
 	vmcb->np_enable = 1;
 	vmcb->guest_asid = asid;
 
-	return svm_set_cell_config(cpu_data->cell, vmcb);
+	return vcpu_set_cell_config(cpu_data->cell, vmcb);
 }
 
 unsigned long arch_page_map_gphys2phys(struct per_cpu *cpu_data,
@@ -237,7 +241,7 @@ static void npt_set_next_pt(pt_entry_t pte, unsigned long next_pt)
 	       (PAGE_DEFAULT_FLAGS | PAGE_FLAG_US);
 }
 
-int svm_init(void)
+int vcpu_vendor_init(void)
 {
 	struct paging_structures parking_pt;
 	unsigned long vm_cr;
@@ -283,14 +287,14 @@ int svm_init(void)
 		}
 	}
 
-	return svm_cell_init(&root_cell);
+	return vcpu_cell_init(&root_cell);
 }
 
 /*
- * TODO: This is an almost 100% copy of vmx_cell_init(), except for the
- * has_avic branch and error_out. Refactor the common parts.
+ * TODO: This is an almost 100% copy of vmx.c' vcpu_cell_init(),
+ * except for the has_avic branch and error_out. Refactor common parts.
  */
-int svm_cell_init(struct cell *cell)
+int vcpu_cell_init(struct cell *cell)
 {
 	struct jailhouse_cell_desc *config = cell->config;
 	const u8 *pio_bitmap = jailhouse_cell_pio_bitmap(config);
@@ -317,7 +321,7 @@ int svm_cell_init(struct cell *cell)
 		 *
 		 * FIXME: This is known not to work in nested SVM setup, so
 		 * for now, all access is traped (here and in
-		 * svm_handle_exit() as well).
+		 * vcpu_handle_exit() as well).
 		 */
 		flags = PAGE_READONLY_FLAGS |
 			/* PAGE_FLAG_US | */
@@ -337,7 +341,7 @@ int svm_cell_init(struct cell *cell)
 	}
 
 	if (err) {
-		svm_cell_exit(cell);
+		vcpu_cell_exit(cell);
 		return err;
 	}
 
@@ -379,7 +383,7 @@ int svm_cell_init(struct cell *cell)
  * (sans page flags). Refactor them.
  */
 
-int svm_map_memory_region(struct cell *cell,
+int vcpu_map_memory_region(struct cell *cell,
 			  const struct jailhouse_memory *mem)
 {
 	u64 phys_start = mem->phys_start;
@@ -398,7 +402,7 @@ int svm_map_memory_region(struct cell *cell,
 			       mem->virt_start, flags, PAGE_MAP_NON_COHERENT);
 }
 
-int svm_unmap_memory_region(struct cell *cell,
+int vcpu_unmap_memory_region(struct cell *cell,
 			    const struct jailhouse_memory *mem)
 {
 	return page_map_destroy(&cell->svm.npt_structs, mem->virt_start,
@@ -406,10 +410,10 @@ int svm_unmap_memory_region(struct cell *cell,
 }
 
 /*
- * TODO: This function is the same as vmx_cell_exit().
+ * TODO: This function is the same as vmx.c' vcpu_cell_exit().
  * Refactor common parts.
  */
-void svm_cell_exit(struct cell *cell)
+void vcpu_cell_exit(struct cell *cell)
 {
 	const u8 *root_pio_bitmap =
 		jailhouse_cell_pio_bitmap(root_cell.config);
@@ -431,7 +435,7 @@ void svm_cell_exit(struct cell *cell)
 	page_free(&mem_pool, cell->svm.npt_structs.root_table, 1);
 }
 
-int svm_cpu_init(struct per_cpu *cpu_data)
+int vcpu_init(struct per_cpu *cpu_data)
 {
 	unsigned long efer;
 	int err;
@@ -457,7 +461,7 @@ int svm_cpu_init(struct per_cpu *cpu_data)
 	return 0;
 }
 
-void svm_cpu_exit(struct per_cpu *cpu_data)
+void vcpu_exit(struct per_cpu *cpu_data)
 {
 	unsigned long efer;
 
@@ -470,7 +474,7 @@ void svm_cpu_exit(struct per_cpu *cpu_data)
 	write_msr(MSR_VM_HSAVE_PA, 0);
 }
 
-void svm_cpu_activate_vmm(struct per_cpu *cpu_data)
+void vcpu_activate_vmm(struct per_cpu *cpu_data)
 {
 	unsigned long vmcb_pa, host_stack;
 
@@ -520,7 +524,7 @@ void svm_cpu_activate_vmm(struct per_cpu *cpu_data)
 }
 
 static void __attribute__((noreturn))
-svm_cpu_deactivate_vmm(struct registers *guest_regs, struct per_cpu *cpu_data)
+vcpu_deactivate_vmm(struct registers *guest_regs, struct per_cpu *cpu_data)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
 	unsigned long *stack = (unsigned long *)vmcb->rsp;
@@ -595,7 +599,7 @@ svm_cpu_deactivate_vmm(struct registers *guest_regs, struct per_cpu *cpu_data)
 	__builtin_unreachable();
 }
 
-static void svm_cpu_reset(struct per_cpu *cpu_data, unsigned int sipi_vector)
+static void vcpu_reset(struct per_cpu *cpu_data, unsigned int sipi_vector)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
 	unsigned long val;
@@ -681,7 +685,7 @@ static void svm_cpu_reset(struct per_cpu *cpu_data, unsigned int sipi_vector)
 
 	vmcb->dr7 = 0x00000400;
 
-	ok &= svm_set_cell_config(cpu_data->cell, vmcb);
+	ok &= vcpu_set_cell_config(cpu_data->cell, vmcb);
 
 	/* This is always false, but to be consistent with vmx.c... */
 	if (!ok) {
@@ -736,7 +740,7 @@ static void svm_handle_hypercall(struct registers *guest_regs,
 				vmcb->rip - X86_INST_LEN_VMCALL);
 
 	if (code == JAILHOUSE_HC_DISABLE && guest_regs->rax == 0)
-		svm_cpu_deactivate_vmm(guest_regs, cpu_data);
+		vcpu_deactivate_vmm(guest_regs, cpu_data);
 }
 
 static bool
@@ -1071,7 +1075,7 @@ static void dump_guest_regs(struct registers *guest_regs, struct vmcb *vmcb)
 	panic_printk("EFER: %p\n", vmcb->efer);
 }
 
-void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
+void vcpu_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
 	int sipi_vector;
@@ -1092,10 +1096,10 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 			if (sipi_vector >= 0) {
 				printk("CPU %d received SIPI, vector %x\n",
 						cpu_data->cpu_id, sipi_vector);
-				svm_cpu_reset(cpu_data, sipi_vector);
+				vcpu_reset(cpu_data, sipi_vector);
 				memset(guest_regs, 0, sizeof(*guest_regs));
 			}
-			amd_iommu_check_pending_faults(cpu_data);
+			iommu_check_pending_faults(cpu_data);
 			return;
 		case VMEXIT_CPUID:
 			/* FIXME: We are not intercepting CPUID now */
@@ -1171,11 +1175,11 @@ void svm_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 	panic_halt(cpu_data);
 }
 
-void svm_cpu_park(struct per_cpu *cpu_data)
+void vcpu_park(struct per_cpu *cpu_data)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
 
-	svm_cpu_reset(cpu_data, 0);
+	vcpu_reset(cpu_data, 0);
 
 	/* The guest resumes at reset vector */
 	vmcb->cs.selector = 0xf000;
@@ -1185,12 +1189,12 @@ void svm_cpu_park(struct per_cpu *cpu_data)
 	vmcb->n_cr3 = page_map_hvirt2phys(parking_root);
 }
 
-void svm_nmi_handler(struct per_cpu *cpu_data)
+void vcpu_nmi_handler(struct per_cpu *cpu_data)
 {
 	printk("Consuming pending NMI on CPU %d\n", cpu_data->cpu_id);
 }
 
-void svm_tlb_flush(struct per_cpu *cpu_data)
+void vcpu_tlb_flush(struct per_cpu *cpu_data)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
 
