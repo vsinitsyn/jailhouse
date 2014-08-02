@@ -100,21 +100,4 @@ struct vtd_entry {
 #define  VTD_FRCD_HI_F			(1L << (127-64))
 #define  VTD_FRCD_HI_F_CLEAR		1
 
-int vtd_init(void);
-
-int vtd_cell_init(struct cell *cell);
-int vtd_map_memory_region(struct cell *cell,
-			  const struct jailhouse_memory *mem);
-int vtd_unmap_memory_region(struct cell *cell,
-			    const struct jailhouse_memory *mem);
-int vtd_add_pci_device(struct cell *cell, struct pci_device *device);
-void vtd_remove_pci_device(struct pci_device *device);
-void vtd_cell_exit(struct cell *cell);
-
-void vtd_config_commit(struct cell *cell_added_removed);
-
-void vtd_shutdown(void);
-
-void vtd_check_pending_faults(struct per_cpu *cpu_data);
-
 #endif

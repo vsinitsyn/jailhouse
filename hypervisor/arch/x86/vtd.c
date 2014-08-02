@@ -18,6 +18,7 @@
 #include <jailhouse/string.h>
 #include <asm/vtd.h>
 #include <asm/apic.h>
+#include <asm/iommu.h>
 #include <asm/bitops.h>
 
 /* TODO: Support multiple segments */
@@ -131,7 +132,7 @@ static void vtd_print_fault_record_reg_status(void *reg_base)
 	printk(" Fault Reason: 0x%x Fault Info: %x Type %d\n", fr, fi, type);
 }
 
-void vtd_check_pending_faults(struct per_cpu *cpu_data)
+void iommu_check_pending_faults(struct per_cpu *cpu_data)
 {
 	unsigned int fr_index;
 	void *reg_base = dmar_reg_base;
@@ -183,7 +184,7 @@ static void vtd_init_unit(void *reg_base)
 			      VTD_IOTLB_IIRG_GLOBAL);
 }
 
-int vtd_init(void)
+int iommu_init(void)
 {
 	unsigned long caps, sllps_caps = ~0UL;
 	unsigned int pt_levels, num_did, n;
@@ -264,10 +265,10 @@ int vtd_init(void)
 	if (!(sllps_caps & VTD_CAP_SLLPS2M))
 		vtd_paging[dmar_pt_levels - 2].page_size = 0;
 
-	return vtd_cell_init(&root_cell);
+	return iommu_cell_init(&root_cell);
 }
 
-int vtd_add_pci_device(struct cell *cell, struct pci_device *device)
+int iommu_add_pci_device(struct cell *cell, struct pci_device *device)
 {
 	u16 bdf = device->info->bdf;
 	u64 *root_entry_lo = &root_entry_table[PCI_BUS(bdf)].lo_word;
@@ -300,7 +301,7 @@ int vtd_add_pci_device(struct cell *cell, struct pci_device *device)
 	return 0;
 }
 
-void vtd_remove_pci_device(struct pci_device *device)
+void iommu_remove_pci_device(struct pci_device *device)
 {
 	u16 bdf = device->info->bdf;
 	u64 *root_entry_lo = &root_entry_table[PCI_BUS(bdf)].lo_word;
@@ -327,7 +328,7 @@ void vtd_remove_pci_device(struct pci_device *device)
 	page_free(&mem_pool, context_entry_table, 1);
 }
 
-int vtd_cell_init(struct cell *cell)
+int iommu_cell_init(struct cell *cell)
 {
 	// HACK for QEMU
 	if (dmar_units == 0)
@@ -346,7 +347,7 @@ int vtd_cell_init(struct cell *cell)
 	return 0;
 }
 
-int vtd_map_memory_region(struct cell *cell,
+int iommu_map_memory_region(struct cell *cell,
 			  const struct jailhouse_memory *mem)
 {
 	u32 flags = 0;
@@ -368,7 +369,7 @@ int vtd_map_memory_region(struct cell *cell,
 			       PAGE_MAP_COHERENT);
 }
 
-int vtd_unmap_memory_region(struct cell *cell,
+int iommu_unmap_memory_region(struct cell *cell,
 			    const struct jailhouse_memory *mem)
 {
 	// HACK for QEMU
@@ -382,7 +383,7 @@ int vtd_unmap_memory_region(struct cell *cell,
 				mem->size, PAGE_MAP_COHERENT);
 }
 
-void vtd_cell_exit(struct cell *cell)
+void iommu_cell_exit(struct cell *cell)
 {
 	// HACK for QEMU
 	if (dmar_units == 0)
@@ -391,7 +392,7 @@ void vtd_cell_exit(struct cell *cell)
 	page_free(&mem_pool, cell->vtd.pg_structs.root_table, 1);
 }
 
-void vtd_config_commit(struct cell *cell_added_removed)
+void iommu_config_commit(struct cell *cell_added_removed)
 {
 	void *reg_base = dmar_reg_base;
 	int n;
@@ -414,7 +415,7 @@ void vtd_config_commit(struct cell *cell_added_removed)
 	}
 }
 
-void vtd_shutdown(void)
+void iommu_shutdown(void)
 {
 	void *reg_base = dmar_reg_base;
 	unsigned int n;

@@ -15,8 +15,8 @@
 #include <jailhouse/printk.h>
 #include <jailhouse/utils.h>
 #include <asm/io.h>
+#include <asm/iommu.h>
 #include <asm/pci.h>
-#include <asm/vm.h>
 
 /* protects the root bridge's PIO interface to the PCI config space */
 static DEFINE_SPINLOCK(pci_lock);
