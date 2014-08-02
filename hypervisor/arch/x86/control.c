@@ -16,7 +16,8 @@
 #include <asm/apic.h>
 #include <asm/control.h>
 #include <asm/ioapic.h>
-#include <asm/vm.h>
+#include <asm/iommu.h>
+#include <asm/vcpu.h>
 
 struct exception_frame {
 	u64 vector;
@@ -32,13 +33,13 @@ int arch_cell_create(struct per_cpu *cpu_data, struct cell *cell)
 {
 	int err;
 
-	err = vm_cell_init(cell);
+	err = vcpu_cell_init(cell);
 	if (err)
 		return err;
 
 	err = iommu_cell_init(cell);
 	if (err)
-		vm_cell_exit(cell);
+		vcpu_cell_exit(cell);
 
 	ioapic_cell_init(cell);
 	ioapic_root_cell_shrink(cell->config);
@@ -54,13 +55,13 @@ int arch_map_memory_region(struct cell *cell,
 {
 	int err;
 
-	err = vm_map_memory_region(cell, mem);
+	err = vcpu_map_memory_region(cell, mem);
 	if (err)
 		return err;
 
 	err = iommu_map_memory_region(cell, mem);
 	if (err)
-		vm_unmap_memory_region(cell, mem);
+		vcpu_unmap_memory_region(cell, mem);
 	return err;
 }
 
@@ -73,14 +74,14 @@ int arch_unmap_memory_region(struct cell *cell,
 	if (err)
 		return err;
 
-	return vm_unmap_memory_region(cell, mem);
+	return vcpu_unmap_memory_region(cell, mem);
 }
 
 void arch_cell_destroy(struct per_cpu *cpu_data, struct cell *cell)
 {
 	ioapic_cell_exit(cell);
 	iommu_cell_exit(cell);
-	vm_cell_exit(cell);
+	vcpu_cell_exit(cell);
 }
 
 /* all root cell CPUs (except cpu_data) have to be stopped */
@@ -97,7 +98,7 @@ void arch_config_commit(struct per_cpu *cpu_data,
 				    cpu_data->cpu_id)
 			per_cpu(cpu)->flush_virt_caches = true;
 
-	vm_tlb_flush(cpu_data);
+	vcpu_tlb_flush(cpu_data);
 
 	iommu_config_commit(cell_added_removed);
 }
@@ -193,7 +194,7 @@ static void x86_enter_wait_for_sipi(struct per_cpu *cpu_data)
 {
 	cpu_data->init_signaled = false;
 	cpu_data->wait_for_sipi = true;
-	vm_cpu_park(cpu_data);
+	vcpu_park(cpu_data);
 }
 
 int x86_handle_events(struct per_cpu *cpu_data)
@@ -218,7 +219,7 @@ int x86_handle_events(struct per_cpu *cpu_data)
 
 		if (cpu_data->shutdown_cpu) {
 			apic_clear();
-			vm_cpu_exit(cpu_data);
+			vcpu_exit(cpu_data);
 			asm volatile("1: hlt; jmp 1b");
 		}
 
@@ -237,7 +238,7 @@ int x86_handle_events(struct per_cpu *cpu_data)
 
 	if (cpu_data->flush_virt_caches) {
 		cpu_data->flush_virt_caches = false;
-		vm_tlb_flush(cpu_data);
+		vcpu_tlb_flush(cpu_data);
 	}
 
 	spin_unlock(&cpu_data->control_lock);
