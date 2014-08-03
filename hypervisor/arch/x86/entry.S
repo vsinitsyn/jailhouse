@@ -139,10 +139,7 @@ irq_entry:
 
 
 /* VM-exit handling */
-#ifdef ENABLE_VMX
-	.globl vm_exit
-vm_exit:
-	push %rax
+.macro push_gprs_excl_rax
 	push %rcx
 	push %rdx
 	push %rbx
@@ -158,11 +155,9 @@ vm_exit:
 	push %r13
 	push %r14
 	push %r15
+.endm
 
-	mov %rsp,%rdi
-	lea -PERCPU_STACK_END+16*8(%rsp),%rsi
-	call vcpu_handle_exit
-
+.macro pop_gprs_excl_rax
 	pop %r15
 	pop %r14
 	pop %r13
@@ -178,7 +173,20 @@ vm_exit:
 	pop %rbx
 	pop %rdx
 	pop %rcx
+.endm
+
+	.globl vm_exit
+vm_exit:
+#ifdef ENABLE_VMX
+	push %rax
+	push_gprs_excl_rax
+
+	mov %rsp,%rdi
+	lea -PERCPU_STACK_END+16*8(%rsp),%rsi
+	call vcpu_handle_exit
+
 	pop %rax
+	pop_gprs_excl_rax
 
 	vmresume
 
@@ -186,49 +194,19 @@ vm_exit:
 	jmp vcpu_entry_failure
 #endif
 #ifdef ENABLE_SVM
-	.globl vm_exit
-vm_exit:
 	/* XXX: GIF is always cleared here */
 	push %rax
 
 	push -PERCPU_STACK_END+1*8+PERCPU_VMCB_RAX(%rsp)
-	push %rcx
-	push %rdx
-	push %rbx
-	sub $8,%rsp /* placeholder for rsp */
-	push %rbp
-	push %rsi
-	push %rdi
-	push %r8
-	push %r9
-	push %r10
-	push %r11
-	push %r12
-	push %r13
-	push %r14
-	push %r15
+	push_gprs_excl_rax
 
 	mov %rsp,%rdi
 	lea -PERCPU_STACK_END+1*8+16*8(%rsp),%rsi
 	call vcpu_handle_exit
 
-	pop %r15
-	pop %r14
-	pop %r13
-	pop %r12
-	pop %r11
-	pop %r10
-	pop %r9
-	pop %r8
-	pop %rdi
-	pop %rsi
-	pop %rbp
-	add $8,%rsp
-	pop %rbx
-	pop %rdx
-	pop %rcx
-
+	pop_gprs_excl_rax
 	pop -PERCPU_STACK_END+1*8+PERCPU_VMCB_RAX(%rsp)
+
 	pop %rax
 
 	vmload
