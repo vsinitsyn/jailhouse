@@ -27,6 +27,7 @@
 #include <asm/iommu.h>
 #include <asm/pci.h>
 #include <asm/vcpu.h>
+#include <asm/vmcs.h>
 #include <asm/vmx.h>
 #include <asm/vtd.h>
 
