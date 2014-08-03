@@ -35,17 +35,8 @@
 #include <asm/cell.h>
 #include <asm/spinlock.h>
 
-#ifdef ENABLE_VMX
-struct vmcs {
-	u32 revision_id:31;
-	u32 shadow_indicator:1;
-	u32 abort_indicator;
-	u64 data[(PAGE_SIZE - 4 - 4) / 8];
-} __attribute__((packed));
-#endif
-#ifdef ENABLE_SVM
-#include <asm/svm.h> /* For struct vmcb */
-#endif
+#include <asm/vmcb.h>
+#include <asm/vmcs.h>
 
 struct per_cpu {
 	/* Keep these two in sync with defines above! */
