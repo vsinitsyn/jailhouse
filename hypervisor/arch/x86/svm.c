@@ -35,6 +35,7 @@
 #include <asm/pci.h>
 #include <asm/percpu.h>
 #include <asm/svm.h>
+#include <asm/vmcb.h>
 #include <asm/vcpu.h>
 
 #define SVM_CR0_CLEARED_BITS	(~(X86_CR0_CD | X86_CR0_NW))
