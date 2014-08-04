@@ -8,9 +8,8 @@ o x86 support
  - PCI resource access control
   - config space access moderation [WIP]
  - AMD64 (SVM) [WIP]
-  - get rid of #ifdefs (use link-time decisions)
-  - make us of decode assists in mmio_parse
-  - assign one ASID per cell, not per CPU
+  - make use of decode assists in mmio_parse
+  - assign one ASID per operating mode, not per CPU
   - Do not vmexit on APIC reads (xAPIC mode)
  - power management
   - block
