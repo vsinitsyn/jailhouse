@@ -27,7 +27,6 @@
 
 #include <asm/apic.h>
 #include <asm/amd_iommu.h>
-#include <asm/atomic.h>
 #include <asm/control.h>
 #include <asm/ioapic.h>
 #include <asm/iommu.h>
@@ -41,8 +40,6 @@
 #define SVM_CR0_CLEARED_BITS	(~(X86_CR0_CD | X86_CR0_NW))
 
 static bool has_avic = false, has_assists = false;
-
-static u32 current_asid = 1; /* ASID 0 is for host mode */
 
 static const struct segment invalid_seg = { 0 };
 
@@ -159,11 +156,6 @@ static bool vcpu_set_cell_config(struct cell *cell, struct vmcb *vmcb)
 static int vmcb_setup(struct per_cpu *cpu_data)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
-	u32 asid, nasid = cpuid_ebx(0x8000000A);
-
-	asid = atomic_post_inc(current_asid);
-	if (asid >= nasid)
-		return false;
 
 	memset(vmcb, sizeof(struct vmcb), 0);
 
@@ -224,7 +216,8 @@ static int vmcb_setup(struct per_cpu *cpu_data)
 	vmcb->msrpm_base_pa = page_map_hvirt2phys(msrpm);
 
 	vmcb->np_enable = 1;
-	vmcb->guest_asid = asid;
+	/* No more than one guest owns the CPU */
+	vmcb->guest_asid = 1;
 
 	return vcpu_set_cell_config(cpu_data->cell, vmcb);
 }
