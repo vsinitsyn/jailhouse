@@ -408,8 +408,8 @@ static int jailhouse_enable(struct jailhouse_system __user *arg)
 	struct jailhouse_memory *hv_mem = &config_header.hypervisor_memory;
 	struct jailhouse_header *header;
 	unsigned long config_size;
+	const char *fw_name;
 	int err;
-	const char *fw_name = jailhouse_fw_name();
 
 	fw_name = jailhouse_fw_name();
 	if (!fw_name) {
