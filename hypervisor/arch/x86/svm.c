@@ -700,14 +700,19 @@ static void svm_skip_emulated_instruction(unsigned int inst_len, struct vmcb *vm
 	vmcb->rip += inst_len;
 }
 
-static void update_efer(struct vmcb *vmcb)
+static void update_efer(struct per_cpu *cpu_data)
 {
+	struct vmcb *vmcb = &cpu_data->vmcb;
 	unsigned long efer = vmcb->efer;
 
 	if ((efer & (EFER_LME | EFER_LMA)) != EFER_LME)
 		return;
 
 	efer |= EFER_LMA;
+
+	/* Flush TLB on LMA/LME change: See APMv2, Sect. 15.16 */
+	if ((vmcb->efer ^ efer) & EFER_LMA)
+		vcpu_tlb_flush(cpu_data);
 
 	vmcb->efer = efer;
 }
@@ -882,10 +887,13 @@ static bool svm_handle_cr(struct registers *guest_regs,
 		val = ((unsigned long *)guest_regs)[15 - reg];
 
 	svm_skip_emulated_instruction(X86_INST_LEN_MOV_TO_CR, vmcb);
+	/* Flush TLB on PG/WP/CD/NW  change: See APMv2, Sect. 15.16 */
+	if ((val ^ vmcb->cr0) & (X86_CR0_PG | X86_CR0_WP | X86_CR0_CD | X86_CR0_NW))
+		vcpu_tlb_flush(cpu_data);
 	/* TODO: better check for #GP reasons */
 	vmcb->cr0 = val & SVM_CR0_CLEARED_BITS;
 	if (val & X86_CR0_PG)
-		update_efer(vmcb);
+		update_efer(cpu_data);
 
 out:
 	return ok;
@@ -909,6 +917,7 @@ static bool svm_handle_msr_read(struct registers *guest_regs, struct per_cpu *cp
 static bool svm_handle_msr_write(struct registers *guest_regs, struct per_cpu *cpu_data)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
+	unsigned long efer;
 	bool result = true;
 
 	if (guest_regs->rcx >= MSR_X2APIC_BASE &&
@@ -918,8 +927,12 @@ static bool svm_handle_msr_write(struct registers *guest_regs, struct per_cpu *c
 	}
 	if (guest_regs->rcx == MSR_EFER) {
 		/* Never let a guest to disable SVME; see APMv2, Sect. 3.1.7 */
-		vmcb->efer = (guest_regs->rax & 0xffffffff) |
+		efer = (guest_regs->rax & 0xffffffff) |
 			(guest_regs->rdx << 32) | EFER_SVME;
+		/* Flush TLB on LME/NXE change: See APMv2, Sect. 15.16 */
+		if ((efer ^ vmcb->efer) & (EFER_LME | EFER_NXE))
+			vcpu_tlb_flush(cpu_data);
+		vmcb->efer = efer;
 		goto out;
 	}
 
