@@ -29,6 +29,7 @@
 
 #define X86_CR0_PE					0x00000001
 #define X86_CR0_ET					0x00000010
+#define X86_CR0_WP					0x00010000
 #define X86_CR0_NW					0x20000000
 #define X86_CR0_CD					0x40000000
 #define X86_CR0_PG					0x80000000
@@ -76,6 +77,7 @@
 
 #define EFER_LME					0x00000100
 #define EFER_LMA					0x00000400
+#define EFER_NXE					0x00000800
 
 #define GDT_DESC_NULL					0
 #define GDT_DESC_CODE					1
