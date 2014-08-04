@@ -41,7 +41,7 @@
 
 #define SVM_CR0_CLEARED_BITS	(~(X86_CR0_CD | X86_CR0_NW))
 
-bool has_avic = false, has_assists = false;
+static bool has_avic = false, has_assists = false;
 
 static u32 current_asid = 1; /* ASID 0 is for host mode */
 
@@ -93,9 +93,9 @@ static u8 __attribute__((aligned(PAGE_SIZE))) parking_code[PAGE_SIZE] = {
 	[ 0xff3 ] = 0xfc  /*    jmp 1b */
 };
 
-void *parking_root;
+static void *parking_root;
 
-void *avic_page;
+static void *avic_page;
 
 static int svm_check_features(void)
 {
