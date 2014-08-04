@@ -26,6 +26,4 @@
 
 #define NPT_PAGE_DIR_LEVELS	4
 
-extern bool decode_assists;
-
 #endif
