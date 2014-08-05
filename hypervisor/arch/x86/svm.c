@@ -222,6 +222,9 @@ static int vmcb_setup(struct per_cpu *cpu_data)
 	/* No more than one guest owns the CPU */
 	vmcb->guest_asid = 1;
 
+	/* Explicitly mark all of the state as new */
+	vmcb->clean_bits = 0;
+
 	return vcpu_set_cell_config(cpu_data->cell, vmcb);
 }
 
@@ -686,6 +689,9 @@ static void vcpu_reset(struct per_cpu *cpu_data, unsigned int sipi_vector)
 
 	vmcb->dr7 = 0x00000400;
 
+	/* Almost all of the guest state changed */
+	vmcb->clean_bits = 0;
+
 	ok &= vcpu_set_cell_config(cpu_data->cell, vmcb);
 
 	/* This is always false, but to be consistent with vmx.c... */
@@ -715,6 +721,7 @@ static void update_efer(struct per_cpu *cpu_data)
 		vcpu_tlb_flush(cpu_data);
 
 	vmcb->efer = efer;
+	vmcb->clean_bits &= ~CLEAN_BITS_CRX;
 }
 
 /*
@@ -859,6 +866,12 @@ out:
 	return ok;
 }
 
+/*
+ * XXX: The only visible reason to have this function (vmx.c consistency
+ * aside) is to prevent cells from setting invalid CD+NW combinations that
+ * result in no more than VMEXIT_INVALID. Maybe we can get along without it
+ * altogether?
+ */
 static bool svm_handle_cr(struct registers *guest_regs,
 			  struct per_cpu *cpu_data)
 {
@@ -894,6 +907,7 @@ static bool svm_handle_cr(struct registers *guest_regs,
 	vmcb->cr0 = val & SVM_CR0_CLEARED_BITS;
 	if (val & X86_CR0_PG)
 		update_efer(cpu_data);
+	vmcb->clean_bits &= ~CLEAN_BITS_CRX;
 
 out:
 	return ok;
@@ -933,6 +947,7 @@ static bool svm_handle_msr_write(struct registers *guest_regs, struct per_cpu *c
 		if ((efer ^ vmcb->efer) & (EFER_LME | EFER_NXE))
 			vcpu_tlb_flush(cpu_data);
 		vmcb->efer = efer;
+		vmcb->clean_bits &= ~CLEAN_BITS_CRX;
 		goto out;
 	}
 
@@ -1106,6 +1121,11 @@ void vcpu_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 	write_msr(MSR_GS_BASE, (unsigned long)cpu_data);
 
 	cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_TOTAL]++;
+	/*
+	 * All guest state is marked unmodified; individual handlers must clear
+	 * the bits as needed.
+	 */
+	vmcb->clean_bits = 0xffffffff;
 
 	switch (vmcb->exitcode) {
 		case VMEXIT_INVALID:
@@ -1204,6 +1224,7 @@ void vcpu_park(struct per_cpu *cpu_data)
 	struct vmcb *vmcb = &cpu_data->vmcb;
 
 	vcpu_reset(cpu_data, APIC_BSP_PSEUDO_SIPI);
+	/* No need to clear VMCB Clean bit: vcpu_reset() already does this */
 	vmcb->n_cr3 = page_map_hvirt2phys(parked_mode_npt);
 }
 
