@@ -82,7 +82,7 @@ static u8 __attribute__((aligned(PAGE_SIZE))) msrpm[][0x2000/4] = {
 	}
 };
 
-/* This page is mapped so the code begins at 0xfffffff0 */
+/* This page is mapped so the code begins at 0x000ffff0 */
 static u8 __attribute__((aligned(PAGE_SIZE))) parking_code[PAGE_SIZE] = {
 	[ 0xff0 ] = 0xfa, /* 1: cli */
 	[ 0xff1 ] = 0xf4, /*    hlt */
@@ -90,7 +90,7 @@ static u8 __attribute__((aligned(PAGE_SIZE))) parking_code[PAGE_SIZE] = {
 	[ 0xff3 ] = 0xfc  /*    jmp 1b */
 };
 
-static void *parking_root;
+static void *parked_mode_npt;
 
 static void *avic_page;
 
@@ -261,11 +261,11 @@ int vcpu_vendor_init(void)
 
 	/* Map guest parking code (shared between cells and CPUs) */
 	parking_pt.root_paging = npt_paging;
-	parking_pt.root_table = parking_root = page_alloc(&mem_pool, 1);
-	if (!parking_root)
+	parking_pt.root_table = parked_mode_npt = page_alloc(&mem_pool, 1);
+	if (!parked_mode_npt)
 		return -ENOMEM;
 	err = page_map_create(&parking_pt, page_map_hvirt2phys(parking_code),
-			PAGE_SIZE, 0xfffff000,
+			PAGE_SIZE, 0x000ff000,
 			PAGE_READONLY_FLAGS | PAGE_FLAG_US,
 			PAGE_MAP_NON_COHERENT);
 	if (err)
@@ -1203,14 +1203,8 @@ void vcpu_park(struct per_cpu *cpu_data)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
 
-	vcpu_reset(cpu_data, 0);
-
-	/* The guest resumes at reset vector */
-	vmcb->cs.selector = 0xf000;
-	vmcb->cs.base = 0xffff0000;
-	vmcb->rip = 0xfff0;
-
-	vmcb->n_cr3 = page_map_hvirt2phys(parking_root);
+	vcpu_reset(cpu_data, APIC_BSP_PSEUDO_SIPI);
+	vmcb->n_cr3 = page_map_hvirt2phys(parked_mode_npt);
 }
 
 void vcpu_nmi_handler(struct per_cpu *cpu_data)
