@@ -764,6 +764,18 @@ svm_get_guest_paging_structs(struct guest_paging_structures *pg_structs, struct 
 		pg_structs->root_paging = i386_paging;
 		pg_structs->root_table_gphys =
 			vmcb->cr3 & 0xfffff000UL;
+	} else if (!(vmcb->cr0 & X86_CR0_PG)) {
+		/*
+		 * Can be in non-paged protected mode as well, but
+		 * the translation mechanism will stay the same ayway.
+		 */
+		pg_structs->root_paging = realmode_paging;
+		/*
+		 * This will make page_map_get_guest_page map the page
+		 * that also contains the bootstrap code and, thus, is
+		 * always present in a cell.
+		 */
+		pg_structs->root_table_gphys = 0xff000;
 	} else {
 		printk("FATAL: Unsupported paging mode\n");
 		return false;
@@ -786,23 +798,6 @@ static inline u8 * map_code_page(struct per_cpu *cpu_data,
 		return current_page;
 }
 
-static inline u8 * map_code_page_phys(struct per_cpu *cpu_data,
-				      unsigned long pc,
-				      u8 *current_page)
-{
-	unsigned long guest_mem = TEMPORARY_MAPPING_CPU_BASE(cpu_data);
-	int err;
-
-	if (!current_page || !(pc & ~PAGE_MASK)) {
-		err = page_map_create(&hv_paging_structs,
-			arch_page_map_gphys2phys(cpu_data, pc),
-			PAGE_SIZE, guest_mem, PAGE_DEFAULT_FLAGS,
-			PAGE_MAP_NON_COHERENT);
-		return (err ? NULL : (u8 *)guest_mem);
-	} else
-		return current_page;
-}
-
 static bool x86_parse_mov_to_cr(struct per_cpu *cpu_data,
 				unsigned long pc,
 				unsigned char reg,
@@ -813,15 +808,15 @@ static bool x86_parse_mov_to_cr(struct per_cpu *cpu_data,
 	/* No prefixes are supported yet */
 	u8 opcodes[] = {0x0f, 0x22};
 	u8 *guest_page = NULL, modrm;
-	bool paged_mode = !!(vmcb->cr0 & X86_CR0_PG), ok = false;
+	unsigned long cs_base;
+	bool ok = false;
 	int n;
 
-	if (paged_mode) {
-		if (!svm_get_guest_paging_structs(&pg_structs, vmcb))
-			goto out;
-		guest_page = map_code_page(cpu_data, &pg_structs, pc, guest_page);
-	} else
-		guest_page = map_code_page_phys(cpu_data, vmcb->cs.base + pc, guest_page);
+	if (!svm_get_guest_paging_structs(&pg_structs, vmcb))
+		goto out;
+	cs_base = (vmcb->efer & EFER_LMA) ? 0 : vmcb->cs.base;
+
+	guest_page = map_code_page(cpu_data, &pg_structs, cs_base + pc, guest_page);
 	if (!guest_page)
 		goto out;
 
@@ -829,18 +824,12 @@ static bool x86_parse_mov_to_cr(struct per_cpu *cpu_data,
 		if (guest_page[pc & PAGE_OFFS_MASK] != opcodes[n])
 			goto out;
 
-		if (paged_mode)
-			guest_page = map_code_page(cpu_data, &pg_structs, pc, guest_page);
-		else
-			guest_page = map_code_page_phys(cpu_data, vmcb->cs.base + pc, guest_page);
+		guest_page = map_code_page(cpu_data, &pg_structs, cs_base + pc, guest_page);
 		if (!guest_page)
 			goto out;
 	}
 
-	if (paged_mode)
-		guest_page = map_code_page(cpu_data, &pg_structs, pc, guest_page);
-	else
-		guest_page = map_code_page_phys(cpu_data, vmcb->cs.base + pc, guest_page);
+	guest_page = map_code_page(cpu_data, &pg_structs, cs_base + pc, guest_page);
 	if (!guest_page)
 		goto out;
 
