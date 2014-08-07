@@ -517,8 +517,7 @@ void vcpu_activate_vmm(struct per_cpu *cpu_data)
 		"mov %2, %%rsp\n\t"
 		"jmp vm_exit"
 		: /* no output */
-		/* FIXME: Why can't we use "m" (vmcb_pa) here? */
-		: "l" (vmcb_pa), "D" (cpu_data->linux_reg), "m" (host_stack)
+		: "m" (vmcb_pa), "D" (cpu_data->linux_reg), "m" (host_stack)
 		: "memory", "r15", "r14", "r13", "r12", "rbx", "rbp", "rax", "cc");
 	__builtin_unreachable();
 }
