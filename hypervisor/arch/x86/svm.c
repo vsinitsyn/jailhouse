@@ -1226,6 +1226,8 @@ void vcpu_park(struct per_cpu *cpu_data)
 	vcpu_reset(cpu_data, APIC_BSP_PSEUDO_SIPI);
 	/* No need to clear VMCB Clean bit: vcpu_reset() already does this */
 	vmcb->n_cr3 = page_map_hvirt2phys(parked_mode_npt);
+
+	vcpu_tlb_flush(cpu_data);
 }
 
 void vcpu_nmi_handler(struct per_cpu *cpu_data)
