@@ -448,7 +448,7 @@ int vcpu_init(struct per_cpu *cpu_data)
 	efer |= EFER_SVME;
 	write_msr(MSR_EFER, efer);
 
-	/* TODO: Set cpu_data->vmx_state equivalent? */
+	cpu_data->svm_state = SVMON;
 
 	if (!vmcb_setup(cpu_data))
 		return -EIO;
@@ -462,7 +462,10 @@ void vcpu_exit(struct per_cpu *cpu_data)
 {
 	unsigned long efer;
 
-	/* TODO: Check cpu_data->vmx_state equivalent, and reset it */
+	if (cpu_data->svm_state == SVMOFF)
+		return;
+
+	cpu_data->svm_state = SVMOFF;
 
 	efer = read_msr(MSR_EFER);
 	efer &= ~EFER_SVME;

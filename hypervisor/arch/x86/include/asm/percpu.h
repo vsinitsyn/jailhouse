@@ -68,6 +68,9 @@ struct per_cpu {
 #ifdef ENABLE_VMX
 	enum { VMXOFF = 0, VMXON, VMCS_READY } vmx_state;
 #endif
+#ifdef ENABLE_SVM
+	enum { SVMOFF = 0, SVMON} svm_state;
+#endif
 
 	/*
 	 * protects the following per_cpu fields (unless CPU is stopped):
