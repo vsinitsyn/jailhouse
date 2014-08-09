@@ -17,6 +17,7 @@
 
 int iommu_init(void)
 {
+	printk("WARNING: AMD IOMMU support is not implemented yet\n");
 	/* TODO: Implement */
 	return 0;
 }
