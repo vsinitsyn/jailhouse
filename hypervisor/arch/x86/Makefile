@@ -13,7 +13,7 @@
 #
 
 COMMON_OBJECTS := apic.o dbg-write.o entry.o setup.o control.o mmio.o \
-	 paging.o ../../pci.o pci.o ioapic.o i8042.o
+	 paging.o ../../pci.o pci.o ioapic.o i8042.o vcpu.o
 
 # Can't list built-in-{amd,intel}.o in obj-y together, because Kbuild will
 # try to build both vmx.o and svm.o then. However, headers like <asm/percpu.h>

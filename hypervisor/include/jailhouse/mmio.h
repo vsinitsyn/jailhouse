@@ -41,7 +41,8 @@ DEFINE_MMIO_WRITE(16)
 DEFINE_MMIO_WRITE(32)
 DEFINE_MMIO_WRITE(64)
 
-struct mmio_access mmio_parse(unsigned long pc,
+struct mmio_access mmio_parse(struct per_cpu *cpu_data,
+		              unsigned long pc,
 			      const struct guest_paging_structures *pg_structs,
 			      bool is_write);
 

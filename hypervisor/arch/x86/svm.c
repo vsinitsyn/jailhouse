@@ -1009,7 +1009,7 @@ static bool svm_handle_npf(struct registers *guest_regs,
 	if (!svm_get_guest_paging_structs(&pg_structs, vmcb))
 		goto invalid_access;
 
-	access = mmio_parse(vmcb->rip, &pg_structs, is_write);
+	access = mmio_parse(cpu_data, vmcb->rip, &pg_structs, is_write);
 	if (!access.inst_len || access.size != 4)
 		goto invalid_access;
 
