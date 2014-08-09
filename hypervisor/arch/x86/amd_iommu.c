@@ -10,10 +10,12 @@
  * the COPYING file in the top-level directory.
  */
 
+#include <jailhouse/printk.h>
 #include <asm/iommu.h>
 
 int iommu_init(void)
 {
+	printk("WARNING: AMD IOMMU support is not implemented yet");
 	/* TODO: Implement */
 	return 0;
 }
