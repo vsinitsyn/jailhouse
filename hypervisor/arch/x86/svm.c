@@ -782,21 +782,6 @@ svm_get_guest_paging_structs(struct guest_paging_structures *pg_structs, struct 
 	return true;
 }
 
-/*
- * TODO: This is a very likely candidate for merging with mmio.c
- */
-static inline u8 * map_code_page(struct per_cpu *cpu_data,
-				 struct guest_paging_structures *pg_structs,
-				 unsigned long pc,
-				 u8 *current_page)
-{
-	if (!current_page || !(pc & ~PAGE_MASK))
-		return page_map_get_guest_page(cpu_data, pg_structs,
-			pc, PAGE_READONLY_FLAGS);
-	else
-		return current_page;
-}
-
 static bool x86_parse_mov_to_cr(struct per_cpu *cpu_data,
 				unsigned long pc,
 				unsigned char reg,
@@ -805,34 +790,54 @@ static bool x86_parse_mov_to_cr(struct per_cpu *cpu_data,
 	struct vmcb *vmcb = &cpu_data->vmcb;
 	struct guest_paging_structures pg_structs;
 	/* No prefixes are supported yet */
-	u8 opcodes[] = {0x0f, 0x22};
-	u8 *guest_page = NULL, modrm;
+	u8 opcodes[] = {0x0f, 0x22}, modrm;
+	unsigned int remaining, size = 0;
 	unsigned long cs_base;
 	bool ok = false;
+	const u8 *inst = NULL;
 	int n;
 
+	remaining = ARRAY_SIZE(opcodes);
 	if (!svm_get_guest_paging_structs(&pg_structs, vmcb))
 		goto out;
 	cs_base = (vmcb->efer & EFER_LMA) ? 0 : vmcb->cs.base;
 
-	guest_page = map_code_page(cpu_data, &pg_structs, cs_base + pc, guest_page);
-	if (!guest_page)
-		goto out;
-
-	for (n = 0; n < ARRAY_SIZE(opcodes); n++, pc++) {
-		if (guest_page[pc & PAGE_OFFS_MASK] != opcodes[n])
+	if (!size) {
+		size = remaining;
+		inst = vcpu_map_inst(cpu_data, &pg_structs,
+				     cs_base + pc, &size);
+		if (!inst)
 			goto out;
-
-		guest_page = map_code_page(cpu_data, &pg_structs, cs_base + pc, guest_page);
-		if (!guest_page)
-			goto out;
+		remaining -= size;
+		pc += size;
 	}
 
-	guest_page = map_code_page(cpu_data, &pg_structs, cs_base + pc, guest_page);
-	if (!guest_page)
-		goto out;
+	for (n = 0; n < ARRAY_SIZE(opcodes); n++, inst++) {
+		if (*inst != opcodes[n])
+			goto out;
 
-	modrm = guest_page[pc & PAGE_OFFS_MASK];
+		if (!size) {
+			size = remaining;
+			inst = vcpu_map_inst(cpu_data, &pg_structs,
+					     cs_base + pc, &size);
+			if (!inst)
+				goto out;
+			remaining -= size;
+			pc += size;
+		}
+	}
+
+	if (!size) {
+		size = remaining;
+		inst = vcpu_map_inst(cpu_data, &pg_structs,
+				     cs_base + pc, &size);
+		if (!inst)
+			goto out;
+		remaining -= size;
+		pc += size;
+	}
+
+	modrm = *inst;
 
 	if (((modrm & 0x38) >> 3) != reg)
 		goto out;
@@ -963,11 +968,6 @@ static bool svm_handle_apic_access(struct registers *guest_regs,
 	if (offset & 0x00f)
 		goto out_err;
 
-	/*
-         * TODO: Need an abstraction layer for mmio_parse() to use
-	 * vmcb->guest_bytes instead of the page table walk when 
-	 * vmcb->bytes_fetched is non-zero and vmcb->exitcode == VMEXIT_NPF.
-	 */
 	if (!svm_get_guest_paging_structs(&pg_structs, vmcb))
 		goto out_err;
 
@@ -1218,5 +1218,27 @@ void vcpu_tlb_flush(struct per_cpu *cpu_data)
 		vmcb->tlb_control = 0x03;
 	} else {
 		vmcb->tlb_control = 0x01;
+	}
+}
+
+const u8 *vcpu_get_inst_bytes(struct per_cpu *cpu_data,
+		              const struct guest_paging_structures *pg_structs,
+			      unsigned long pc, unsigned int *size)
+{
+	struct vmcb *vmcb = &cpu_data->vmcb;
+	unsigned long start;
+
+	if (has_assists) {
+		if (!size || !*size)
+			return NULL;
+		start = vmcb->rip - pc;
+		if (start < vmcb->bytes_fetched) {
+			*size = vmcb->bytes_fetched - start;
+			return &vmcb->guest_bytes[start];
+		} else {
+			return NULL;
+		}
+	} else {
+		return vcpu_map_inst(cpu_data, pg_structs, pc, size);
 	}
 }
