@@ -40,9 +40,9 @@
 
 #define SVM_CR0_CLEARED_BITS	(~(X86_CR0_CD | X86_CR0_NW))
 
-static bool has_avic = false, has_assists = false;
+static bool has_avic, has_assists;
 
-static const struct segment invalid_seg = { 0 };
+static const struct segment invalid_seg;
 
 static struct paging npt_paging[NPT_PAGE_DIR_LEVELS];
 
