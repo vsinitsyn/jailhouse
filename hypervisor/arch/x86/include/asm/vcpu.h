@@ -70,4 +70,7 @@ const u8 *vcpu_get_inst_bytes(struct per_cpu *cpu_data,
 void vcpu_vendor_get_cell_io_bitmap(struct cell *cell,
 		                    struct vcpu_io_bitmap *out);
 
+inline void vcpu_skip_emulated_instruction(struct per_cpu *cpu_data,
+		                           unsigned int inst_len);
+
 #endif
