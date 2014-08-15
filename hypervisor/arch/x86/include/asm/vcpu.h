@@ -40,6 +40,9 @@ int vcpu_init(struct per_cpu *cpu_data);
 void vcpu_exit(struct per_cpu *cpu_data);
 
 void __attribute__((noreturn)) vcpu_activate_vmm(struct per_cpu *cpu_data);
+void __attribute__((noreturn)) vcpu_deactivate_vmm(struct registers *guest_regs,
+		                                   struct per_cpu *cpu_data);
+
 void vcpu_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data);
 
 void vcpu_park(struct per_cpu *cpu_data);
@@ -72,5 +75,13 @@ void vcpu_vendor_get_cell_io_bitmap(struct cell *cell,
 
 inline void vcpu_skip_emulated_instruction(struct per_cpu *cpu_data,
 		                           unsigned int inst_len);
+
+u64 vcpu_get_efer(struct per_cpu *cpu_data);
+u64 vcpu_get_rflags(struct per_cpu *cpu_data);
+u16 vcpu_get_cs_selector(struct per_cpu *cpu_data);
+u64 vcpu_get_rip(struct per_cpu *cpu_data);
+
+void vcpu_handle_hypercall(struct registers *guest_regs,
+			   struct per_cpu *cpu_data);
 
 #endif

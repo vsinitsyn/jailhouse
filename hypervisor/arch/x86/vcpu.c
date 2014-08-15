@@ -14,6 +14,7 @@
 
 #include <jailhouse/control.h>
 #include <jailhouse/paging.h>
+#include <jailhouse/printk.h>
 #include <jailhouse/string.h>
 
 #include <asm/types.h>
@@ -124,4 +125,30 @@ void vcpu_cell_exit(struct cell *cell)
 		*b &= *pio_bitmap | *root_pio_bitmap;
 
 	vcpu_vendor_cell_exit(cell);
+}
+
+void vcpu_handle_hypercall(struct registers *guest_regs,
+			   struct per_cpu *cpu_data)
+{
+	bool long_mode = !!(vcpu_get_efer(cpu_data) & EFER_LMA);
+	unsigned long arg_mask = long_mode ? (u64)-1 : (u32)-1;
+	unsigned long code = guest_regs->rax;
+
+	vcpu_skip_emulated_instruction(cpu_data, X86_INST_LEN_VMCALL);
+
+	if ((!long_mode && vcpu_get_rflags(cpu_data) & X86_RFLAGS_VM) ||
+	    (vcpu_get_cs_selector(cpu_data) & 3) != 0) {
+		guest_regs->rax = -EPERM;
+		return;
+	}
+
+	guest_regs->rax = hypercall(cpu_data, code, guest_regs->rdi & arg_mask,
+				    guest_regs->rsi & arg_mask);
+	if (guest_regs->rax == -ENOSYS)
+		printk("CPU %d: Unknown vmcall %d, RIP: %p\n",
+		       cpu_data->cpu_id, code,
+		       vcpu_get_rip(cpu_data) - X86_INST_LEN_VMCALL);
+
+	if (code == JAILHOUSE_HC_DISABLE && guest_regs->rax == 0)
+		vcpu_deactivate_vmm(guest_regs, cpu_data);
 }
