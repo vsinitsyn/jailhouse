@@ -457,7 +457,7 @@ void vcpu_activate_vmm(struct per_cpu *cpu_data)
 	__builtin_unreachable();
 }
 
-static void __attribute__((noreturn))
+void __attribute__((noreturn))
 vcpu_deactivate_vmm(struct registers *guest_regs, struct per_cpu *cpu_data)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
@@ -653,38 +653,6 @@ static void update_efer(struct per_cpu *cpu_data)
 
 	vmcb->efer = efer;
 	vmcb->clean_bits &= ~CLEAN_BITS_CRX;
-}
-
-/*
- * TODO: This is almost a complete copy of vmx_handle_hypercall (sans vmcb access).
- * Refactor common parts.
- */
-static void svm_handle_hypercall(struct registers *guest_regs,
-				 struct per_cpu *cpu_data)
-{
-	struct vmcb *vmcb = &cpu_data->vmcb;
-	bool long_mode = !!(vmcb->efer & EFER_LMA);
-	unsigned long arg_mask = long_mode ? (u64)-1 : (u32)-1;
-	unsigned long code = guest_regs->rax;
-
-	vcpu_skip_emulated_instruction(cpu_data, X86_INST_LEN_VMCALL);
-
-	if ((!(vmcb->efer & EFER_LMA) &&
-	      vmcb->rflags & X86_RFLAGS_VM) ||
-	     (vmcb->cs.selector & 3) != 0) {
-		guest_regs->rax = -EPERM;
-		return;
-	}
-
-	guest_regs->rax = hypercall(cpu_data, code, guest_regs->rdi & arg_mask,
-				    guest_regs->rsi & arg_mask);
-	if (guest_regs->rax == -ENOSYS)
-		printk("CPU %d: Unknown vmcall %d, RIP: %p\n",
-				cpu_data->cpu_id, guest_regs->rax,
-				vmcb->rip - X86_INST_LEN_VMCALL);
-
-	if (code == JAILHOUSE_HC_DISABLE && guest_regs->rax == 0)
-		vcpu_deactivate_vmm(guest_regs, cpu_data);
 }
 
 static bool
@@ -1063,7 +1031,7 @@ void vcpu_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 			/* FIXME: We are not intercepting CPUID now */
 			return;
 		case VMEXIT_VMMCALL:
-			svm_handle_hypercall(guest_regs, cpu_data);
+			vcpu_handle_hypercall(guest_regs, cpu_data);
 			return;
 		case VMEXIT_CR0_SEL_WRITE:
 			cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_CR]++;
@@ -1159,6 +1127,26 @@ void vcpu_tlb_flush(struct per_cpu *cpu_data)
 	} else {
 		vmcb->tlb_control = 0x01;
 	}
+}
+
+u64 vcpu_get_efer(struct per_cpu *cpu_data)
+{
+	return cpu_data->vmcb.efer;
+}
+
+u64 vcpu_get_rflags(struct per_cpu *cpu_data)
+{
+	return cpu_data->vmcb.rflags;
+}
+
+u16 vcpu_get_cs_selector(struct per_cpu *cpu_data)
+{
+	return cpu_data->vmcb.cs.selector;
+}
+
+u64 vcpu_get_rip(struct per_cpu *cpu_data)
+{
+	return cpu_data->vmcb.rip;
 }
 
 const u8 *vcpu_get_inst_bytes(struct per_cpu *cpu_data,
