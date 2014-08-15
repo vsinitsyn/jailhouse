@@ -627,7 +627,7 @@ void vcpu_activate_vmm(struct per_cpu *cpu_data)
 	panic_stop(cpu_data);
 }
 
-static void __attribute__((noreturn))
+void __attribute__((noreturn))
 vcpu_deactivate_vmm(struct registers *guest_regs, struct per_cpu *cpu_data)
 {
 	unsigned long *stack = (unsigned long *)vmcs_read64(GUEST_RSP);
@@ -824,32 +824,6 @@ static void update_efer(void)
 	vmcs_write64(GUEST_IA32_EFER, efer);
 	vmcs_write32(VM_ENTRY_CONTROLS,
 		     vmcs_read32(VM_ENTRY_CONTROLS) | VM_ENTRY_IA32E_MODE);
-}
-
-static void vmx_handle_hypercall(struct registers *guest_regs,
-				 struct per_cpu *cpu_data)
-{
-	bool ia32e_mode = !!(vmcs_read64(GUEST_IA32_EFER) & EFER_LMA);
-	unsigned long arg_mask = ia32e_mode ? (u64)-1 : (u32)-1;
-	unsigned long code = guest_regs->rax;
-
-	vcpu_skip_emulated_instruction(cpu_data, X86_INST_LEN_VMCALL);
-
-	if ((!ia32e_mode && vmcs_read64(GUEST_RFLAGS) & X86_RFLAGS_VM) ||
-	    (vmcs_read16(GUEST_CS_SELECTOR) & 3) != 0) {
-		guest_regs->rax = -EPERM;
-		return;
-	}
-
-	guest_regs->rax = hypercall(cpu_data, code, guest_regs->rdi & arg_mask,
-				    guest_regs->rsi & arg_mask);
-	if (guest_regs->rax == -ENOSYS)
-		printk("CPU %d: Unknown vmcall %d, RIP: %p\n",
-		       cpu_data->cpu_id, code,
-		       vmcs_read64(GUEST_RIP) - X86_INST_LEN_VMCALL);
-
-	if (code == JAILHOUSE_HC_DISABLE && guest_regs->rax == 0)
-		vcpu_deactivate_vmm(guest_regs, cpu_data);
 }
 
 static bool vmx_handle_cr(struct registers *guest_regs,
@@ -1082,7 +1056,7 @@ void vcpu_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 			(u32 *)&guest_regs->rcx, (u32 *)&guest_regs->rdx);
 		return;
 	case EXIT_REASON_VMCALL:
-		vmx_handle_hypercall(guest_regs, cpu_data);
+		vcpu_handle_hypercall(guest_regs, cpu_data);
 		return;
 	case EXIT_REASON_CR_ACCESS:
 		cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_CR]++;
@@ -1172,4 +1146,24 @@ void vcpu_vendor_get_cell_io_bitmap(struct cell *cell,
 		iobm->data = cell->vmx.io_bitmap;
 		iobm->size = sizeof(cell->vmx.io_bitmap);
 	}
+}
+
+u64 vcpu_get_efer(struct per_cpu *cpu_data)
+{
+	return vmcs_read64(GUEST_IA32_EFER);
+}
+
+u64 vcpu_get_rflags(struct per_cpu *cpu_data)
+{
+	return vmcs_read64(GUEST_RFLAGS);
+}
+
+u16 vcpu_get_cs_selector(struct per_cpu *cpu_data)
+{
+	return vmcs_read16(GUEST_CS_SELECTOR);
+}
+
+u64 vcpu_get_rip(struct per_cpu *cpu_data)
+{
+	return vmcs_read64(GUEST_RIP);
 }
