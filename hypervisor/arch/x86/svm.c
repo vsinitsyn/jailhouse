@@ -289,24 +289,10 @@ int vcpu_vendor_init(void)
 	return vcpu_cell_init(&root_cell);
 }
 
-/*
- * TODO: This is an almost 100% copy of vmx.c' vcpu_cell_init(),
- * except for the has_avic branch and error_out. Refactor common parts.
- */
-int vcpu_cell_init(struct cell *cell)
+int vcpu_vendor_cell_init(struct cell *cell)
 {
-	struct jailhouse_cell_desc *config = cell->config;
-	const u8 *pio_bitmap = jailhouse_cell_pio_bitmap(config);
-	u32 pio_bitmap_size = config->pio_bitmap_size;
-	unsigned int n, pm_timer_addr;
-	int err;
-	u32 size;
 	u64 flags;
-	u8 *b;
-
-	/* PM timer has to be provided */
-	if (system_config->platform_info.x86.pm_timer_address == 0)
-		return -EINVAL;
+	int err;
 
 	/* build root NPT of cell */
 	cell->svm.npt_structs.root_paging = npt_paging;
@@ -339,49 +325,13 @@ int vcpu_cell_init(struct cell *cell)
 				      PAGE_MAP_NON_COHERENT);
 	}
 
-	if (err) {
-		vcpu_cell_exit(cell);
-		return err;
-	}
-
-	memset(cell->svm.iopm, -1, sizeof(cell->svm.iopm));
-
-	/* Assume pio_bitmap is never more than two pages long */
-	for (n = 0; n < 2; n++) {
-		size = pio_bitmap_size <= PAGE_SIZE ?
-			pio_bitmap_size : PAGE_SIZE;
-		memcpy(cell->svm.iopm + n * PAGE_SIZE, pio_bitmap, size);
-		pio_bitmap += size;
-		pio_bitmap_size -= size;
-	}
-
-	if (cell != &root_cell) {
-		/*
-		 * Shrink PIO access of root cell corresponding to new cell's
-		 * access rights.
-		 */
-		pio_bitmap = jailhouse_cell_pio_bitmap(cell->config);
-		pio_bitmap_size = cell->config->pio_bitmap_size;
-		for (b = root_cell.svm.iopm; pio_bitmap_size > 0;
-				b++, pio_bitmap++, pio_bitmap_size--)
-			*b |= ~*pio_bitmap;
-	}
-
-	/* permit access to the PM timer */
-	pm_timer_addr = system_config->platform_info.x86.pm_timer_address;
-	for (n = 0; n < 4; n++, pm_timer_addr++) {
-		b = cell->svm.iopm;
-		b[pm_timer_addr / 8] &= ~(1 << (pm_timer_addr % 8));
-	}
-
-	return 0;
+	return err;
 }
 
 /*
  * TODO: These two functions are almost 100% copy of their vmx counterparts
  * (sans page flags). Refactor them.
  */
-
 int vcpu_map_memory_region(struct cell *cell,
 			  const struct jailhouse_memory *mem)
 {
@@ -408,29 +358,10 @@ int vcpu_unmap_memory_region(struct cell *cell,
 				mem->size, PAGE_MAP_NON_COHERENT);
 }
 
-/*
- * TODO: This function is the same as vmx.c' vcpu_cell_exit().
- * Refactor common parts.
- */
-void vcpu_cell_exit(struct cell *cell)
+void vcpu_vendor_cell_exit(struct cell *cell)
 {
-	const u8 *root_pio_bitmap =
-		jailhouse_cell_pio_bitmap(root_cell.config);
-	struct jailhouse_cell_desc *config = cell->config;
-	const u8 *pio_bitmap = jailhouse_cell_pio_bitmap(config);
-	u32 pio_bitmap_size = config->pio_bitmap_size;
-	u8 *b;
-
 	page_map_destroy(&cell->svm.npt_structs, XAPIC_BASE, PAGE_SIZE,
 			 PAGE_MAP_NON_COHERENT);
-
-	if (root_cell.config->pio_bitmap_size < pio_bitmap_size)
-		pio_bitmap_size = root_cell.config->pio_bitmap_size;
-
-	for (b = root_cell.svm.iopm; pio_bitmap_size > 0;
-	     b++, pio_bitmap++, root_pio_bitmap++, pio_bitmap_size--)
-		*b &= *pio_bitmap | *root_pio_bitmap;
-
 	page_free(&mem_pool, cell->svm.npt_structs.root_table, 1);
 }
 
@@ -1237,5 +1168,14 @@ const u8 *vcpu_get_inst_bytes(struct per_cpu *cpu_data,
 		}
 	} else {
 		return vcpu_map_inst(cpu_data, pg_structs, pc, size);
+	}
+}
+
+void vcpu_vendor_get_cell_io_bitmap(struct cell *cell,
+		                    struct vcpu_io_bitmap *iobm)
+{
+	if (iobm) {
+		iobm->data = cell->svm.iopm;
+		iobm->size = sizeof(cell->svm.iopm);
 	}
 }
