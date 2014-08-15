@@ -326,10 +326,6 @@ int vcpu_vendor_cell_init(struct cell *cell)
 	return err;
 }
 
-/*
- * TODO: These two functions are almost 100% copy of their vmx counterparts
- * (sans page flags). Refactor them.
- */
 int vcpu_map_memory_region(struct cell *cell,
 			  const struct jailhouse_memory *mem)
 {
@@ -974,8 +970,6 @@ void vcpu_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 					vmcb->exitinfo1 & 0xf);
 			break;
 		case VMEXIT_XSETBV:
-			/* TODO: This is very much like vmx_handle_exit() code.
-			   Refactor common parts */
 			cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_XSETBV]++;
 			if (guest_regs->rax & X86_XCR0_FP &&
 			    (guest_regs->rax & ~cpuid_eax(0x0d)) == 0 &&
