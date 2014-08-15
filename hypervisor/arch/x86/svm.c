@@ -631,8 +631,9 @@ static void vcpu_reset(struct per_cpu *cpu_data, unsigned int sipi_vector)
 	}
 }
 
-static void svm_skip_emulated_instruction(unsigned int inst_len, struct vmcb *vmcb)
+inline void vcpu_skip_emulated_instruction(struct per_cpu *cpu_data, unsigned int inst_len)
 {
+	struct vmcb *vmcb = &cpu_data->vmcb;
 	vmcb->rip += inst_len;
 }
 
@@ -666,7 +667,7 @@ static void svm_handle_hypercall(struct registers *guest_regs,
 	unsigned long arg_mask = long_mode ? (u64)-1 : (u32)-1;
 	unsigned long code = guest_regs->rax;
 
-	svm_skip_emulated_instruction(X86_INST_LEN_VMCALL, vmcb);
+	vcpu_skip_emulated_instruction(cpu_data, X86_INST_LEN_VMCALL);
 
 	if ((!(vmcb->efer & EFER_LMA) &&
 	      vmcb->rflags & X86_RFLAGS_VM) ||
@@ -818,7 +819,7 @@ static bool svm_handle_cr(struct registers *guest_regs,
 	else
 		val = ((unsigned long *)guest_regs)[15 - reg];
 
-	svm_skip_emulated_instruction(X86_INST_LEN_MOV_TO_CR, vmcb);
+	vcpu_skip_emulated_instruction(cpu_data, X86_INST_LEN_MOV_TO_CR);
 	/* Flush TLB on PG/WP/CD/NW  change: See APMv2, Sect. 15.16 */
 	if ((val ^ vmcb->cr0) & (X86_CR0_PG | X86_CR0_WP | X86_CR0_CD | X86_CR0_NW))
 		vcpu_tlb_flush(cpu_data);
@@ -836,8 +837,7 @@ static bool svm_handle_msr_read(struct registers *guest_regs, struct per_cpu *cp
 {
 	if (guest_regs->rcx >= MSR_X2APIC_BASE &&
 	    guest_regs->rcx <= MSR_X2APIC_END) {
-		svm_skip_emulated_instruction(X86_INST_LEN_RDMSR,
-				&cpu_data->vmcb);
+		vcpu_skip_emulated_instruction(cpu_data, X86_INST_LEN_RDMSR);
 		x2apic_handle_read(guest_regs);
 		return true;
 	} else {
@@ -875,7 +875,7 @@ static bool svm_handle_msr_write(struct registers *guest_regs, struct per_cpu *c
 			guest_regs->rcx);
 out:
 	if (result)
-		svm_skip_emulated_instruction(X86_INST_LEN_WRMSR, vmcb);
+		vcpu_skip_emulated_instruction(cpu_data, X86_INST_LEN_WRMSR);
 	return result;
 }
 
@@ -908,7 +908,7 @@ static bool svm_handle_apic_access(struct registers *guest_regs,
 	if (!inst_len)
 		goto out_err;
 
-	svm_skip_emulated_instruction(inst_len, vmcb);
+	vcpu_skip_emulated_instruction(cpu_data, inst_len);
 	return true;
 
 out_err:
@@ -955,7 +955,7 @@ static bool svm_handle_npf(struct registers *guest_regs,
 	if (result == 1) {
 		if (!is_write)
 			((unsigned long *)guest_regs)[access.reg] = val;
-		svm_skip_emulated_instruction(access.inst_len, vmcb);
+		vcpu_skip_emulated_instruction(cpu_data, access.inst_len);
 		return true;
 	}
 
@@ -1106,7 +1106,7 @@ void vcpu_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 			if (guest_regs->rax & X86_XCR0_FP &&
 			    (guest_regs->rax & ~cpuid_eax(0x0d)) == 0 &&
 			    guest_regs->rcx == 0 && guest_regs->rdx == 0) {
-				svm_skip_emulated_instruction(X86_INST_LEN_XSETBV, vmcb);
+				vcpu_skip_emulated_instruction(cpu_data, X86_INST_LEN_XSETBV);
 				asm volatile(
 					"xsetbv"
 					: /* no output */
