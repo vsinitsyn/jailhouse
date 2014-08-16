@@ -13,6 +13,8 @@
 #ifndef _JAILHOUSE_ASM_VCPU_H
 #define _JAILHOUSE_ASM_VCPU_H
 
+#include <jailhouse/paging.h>
+
 #include <asm/percpu.h>
 #include <asm/types.h>
 
@@ -29,6 +31,11 @@ struct vcpu_io_intercept {
 	bool in;
 	unsigned int inst_len;
 	bool rep_or_str;
+};
+
+struct vcpu_pf_intercept {
+	u64 phys_addr;
+	bool is_write;
 };
 
 int vcpu_vendor_init(void);
@@ -92,10 +99,19 @@ u64 vcpu_get_rip(struct per_cpu *cpu_data);
 void vcpu_vendor_get_io_intercept(struct per_cpu *cpu_data,
 		                  struct vcpu_io_intercept *out);
 
+void vcpu_vendor_get_pf_intercept(struct per_cpu *cpu_data,
+		                  struct vcpu_pf_intercept *out);
+
 void vcpu_handle_hypercall(struct registers *guest_regs,
 			   struct per_cpu *cpu_data);
 
 bool vcpu_handle_io_access(struct registers *guest_regs,
 			   struct per_cpu *cpu_data);
+
+bool vcpu_get_guest_paging_structs(
+		struct guest_paging_structures *pg_structs,
+		struct per_cpu *cpu_data);
+bool vcpu_handle_pt_violation(struct registers *guest_regs,
+			      struct per_cpu *cpu_data);
 
 #endif
