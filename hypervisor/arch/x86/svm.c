@@ -27,7 +27,6 @@
 
 #include <asm/apic.h>
 #include <asm/amd_iommu.h>
-#include <asm/i8042.h>
 #include <asm/control.h>
 #include <asm/ioapic.h>
 #include <asm/iommu.h>
@@ -935,46 +934,6 @@ invalid_access:
 	return false;
 }
 
-/*
- * TODO: This is almost a complete copy of vmx_handle_io_access (sans vmcb access).
- * Refactor common parts.
- */
-static bool svm_handle_io_access(struct registers *guest_regs,
-				 struct per_cpu *cpu_data)
-{
-	struct vmcb *vmcb = &cpu_data->vmcb;
-
-	/* parse exit info for I/O instructions (see APM, 15.10.2 ) */
-	u64 exitinfo = vmcb->exitinfo1;
-	u16 port = (exitinfo >> 16) & 0xFFFF;
-	bool dir_in = exitinfo & 0x1;
-	unsigned int size = (exitinfo >> 4) & 0x7;
-	int result = 0;
-
-	/* string and REP-prefixed instructions are not supported */
-	if (exitinfo & 0x0a)
-		goto invalid_access;
-
-	result = x86_pci_config_handler(guest_regs, cpu_data->cell, port,
-			                dir_in, size);
-
-	if (result == 0)
-		result = i8042_access_handler(guest_regs, port, dir_in, size);
-
-	if (result == 1) {
-		/* Skip the port access instruction */
-		vmcb->rip = vmcb->exitinfo2;
-		return true;
-	}
-
-invalid_access:
-	panic_printk("FATAL: Invalid PIO %s, port: %x size: %d\n",
-		     dir_in ? "read" : "write", port, size);
-	panic_printk("PCI address port: %x\n",
-		     cpu_data->cell->pci_addr_port_val);
-	return false;
-}
-
 static void dump_guest_regs(struct registers *guest_regs, struct vmcb *vmcb)
 {
 	panic_printk("RIP: %p RSP: %p FLAGS: %x\n", vmcb->rip,
@@ -1087,7 +1046,7 @@ void vcpu_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 			break;
 		case VMEXIT_IOIO:
 			cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_PIO]++;
-			if (svm_handle_io_access(guest_regs, cpu_data))
+			if (vcpu_handle_io_access(guest_regs, cpu_data))
 				return;
 			break;
 		/* TODO: Handle VMEXIT_AVIC_NOACCEL and VMEXIT_AVIC_INCOMPLETE_IPI */
@@ -1177,5 +1136,21 @@ void vcpu_vendor_get_cell_io_bitmap(struct cell *cell,
 	if (iobm) {
 		iobm->data = cell->svm.iopm;
 		iobm->size = sizeof(cell->svm.iopm);
+	}
+}
+
+void vcpu_vendor_get_io_intercept(struct per_cpu *cpu_data,
+		                  struct vcpu_io_intercept *out)
+{
+	struct vmcb *vmcb = &cpu_data->vmcb;
+	u64 exitinfo = vmcb->exitinfo1;
+
+	/* parse exit info for I/O instructions (see APM, 15.10.2 ) */
+	if (out) {
+		out->port = (exitinfo >> 16) & 0xFFFF;
+		out->size = (exitinfo >> 4) & 0x7;
+		out->in = !!(exitinfo & 0x1);
+		out->inst_len = vmcb->exitinfo2 - vmcb->rip;
+		out->rep_or_str = !!(exitinfo & 0x0a);
 	}
 }
