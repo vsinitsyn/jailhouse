@@ -23,6 +23,14 @@ struct vcpu_io_bitmap {
 	u32 size;
 };
 
+struct vcpu_io_intercept {
+	u16 port;
+	unsigned int size;
+	bool in;
+	unsigned int inst_len;
+	bool rep_or_str;
+};
+
 int vcpu_vendor_init(void);
 
 int vcpu_cell_init(struct cell *cell);
@@ -81,7 +89,13 @@ u64 vcpu_get_rflags(struct per_cpu *cpu_data);
 u16 vcpu_get_cs_selector(struct per_cpu *cpu_data);
 u64 vcpu_get_rip(struct per_cpu *cpu_data);
 
+void vcpu_vendor_get_io_intercept(struct per_cpu *cpu_data,
+		                  struct vcpu_io_intercept *out);
+
 void vcpu_handle_hypercall(struct registers *guest_regs,
+			   struct per_cpu *cpu_data);
+
+bool vcpu_handle_io_access(struct registers *guest_regs,
 			   struct per_cpu *cpu_data);
 
 #endif

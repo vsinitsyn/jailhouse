@@ -18,6 +18,7 @@
 #include <jailhouse/string.h>
 
 #include <asm/types.h>
+#include <asm/pci.h>
 #include <asm/percpu.h>
 #include <asm/vcpu.h>
 
@@ -151,4 +152,29 @@ void vcpu_handle_hypercall(struct registers *guest_regs,
 
 	if (code == JAILHOUSE_HC_DISABLE && guest_regs->rax == 0)
 		vcpu_deactivate_vmm(guest_regs, cpu_data);
+}
+
+bool vcpu_handle_io_access(struct registers *guest_regs,
+			   struct per_cpu *cpu_data)
+{
+	struct vcpu_io_intercept io;
+
+	vcpu_vendor_get_io_intercept(cpu_data, &io);
+
+	/* string and REP-prefixed instructions are not supported */
+	if (io.rep_or_str)
+		goto invalid_access;
+
+	if (x86_pci_config_handler(guest_regs, cpu_data->cell, io.port, io.in,
+				   io.size) == 1) {
+		vcpu_skip_emulated_instruction(cpu_data, io.inst_len);
+		return true;
+	}
+
+invalid_access:
+	panic_printk("FATAL: Invalid PIO %s, port: %x size: %d\n",
+		     io.in ? "read" : "write", io.port, io.size);
+	panic_printk("PCI address port: %x\n",
+		     cpu_data->cell->pci_addr_port_val);
+	return false;
 }
