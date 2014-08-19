@@ -1087,13 +1087,11 @@ void vcpu_vendor_get_io_intercept(struct per_cpu *cpu_data,
 	u64 exitinfo = vmcb->exitinfo1;
 
 	/* parse exit info for I/O instructions (see APM, 15.10.2 ) */
-	if (out) {
-		out->port = (exitinfo >> 16) & 0xFFFF;
-		out->size = (exitinfo >> 4) & 0x7;
-		out->in = !!(exitinfo & 0x1);
-		out->inst_len = vmcb->exitinfo2 - vmcb->rip;
-		out->rep_or_str = !!(exitinfo & 0x0a);
-	}
+	out->port = (exitinfo >> 16) & 0xFFFF;
+	out->size = (exitinfo >> 4) & 0x7;
+	out->in = !!(exitinfo & 0x1);
+	out->inst_len = vmcb->exitinfo2 - vmcb->rip;
+	out->rep_or_str = !!(exitinfo & 0x0a);
 }
 
 void vcpu_vendor_get_pf_intercept(struct per_cpu *cpu_data,
@@ -1101,8 +1099,6 @@ void vcpu_vendor_get_pf_intercept(struct per_cpu *cpu_data,
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
 
-	if (out) {
-		out->phys_addr = vmcb->exitinfo2;
-		out->is_write = !!(vmcb->exitinfo1 & 0x2);
-	}
+	out->phys_addr = vmcb->exitinfo2;
+	out->is_write = !!(vmcb->exitinfo1 & 0x2);
 }
