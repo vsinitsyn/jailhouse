@@ -1068,10 +1068,8 @@ void vcpu_entry_failure(struct per_cpu *cpu_data)
 void vcpu_vendor_get_cell_io_bitmap(struct cell *cell,
 		                    struct vcpu_io_bitmap *iobm)
 {
-	if (iobm) {
-		iobm->data = cell->vmx.io_bitmap;
-		iobm->size = sizeof(cell->vmx.io_bitmap);
-	}
+	iobm->data = cell->vmx.io_bitmap;
+	iobm->size = sizeof(cell->vmx.io_bitmap);
 }
 
 u64 vcpu_get_efer(struct per_cpu *cpu_data)
@@ -1100,13 +1098,11 @@ void vcpu_vendor_get_io_intercept(struct per_cpu *cpu_data,
 	u64 exitq = vmcs_read64(EXIT_QUALIFICATION);
 
 	/* parse exit qualification for I/O instructions (see SDM, 27.2.1 ) */
-	if (out) {
-		out->port = (exitq >> 16) & 0xFFFF;
-		out->size = (exitq & 0x3) + 1;
-		out->in = !!((exitq & 0x8) >> 3);
-		out->inst_len = vmcs_read64(VM_EXIT_INSTRUCTION_LEN);
-		out->rep_or_str = !!(exitq & 0x30);
-	}
+	out->port = (exitq >> 16) & 0xFFFF;
+	out->size = (exitq & 0x3) + 1;
+	out->in = !!((exitq & 0x8) >> 3);
+	out->inst_len = vmcs_read64(VM_EXIT_INSTRUCTION_LEN);
+	out->rep_or_str = !!(exitq & 0x30);
 }
 
 void vcpu_vendor_get_pf_intercept(struct per_cpu *cpu_data,
@@ -1114,10 +1110,8 @@ void vcpu_vendor_get_pf_intercept(struct per_cpu *cpu_data,
 {
 	u64 exitq = vmcs_read64(EXIT_QUALIFICATION);
 
-	if (out) {
-		out->phys_addr = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
-		/* We don't enable dirty/accessed bit updated in EPTP,
-		 * so only read of write flags can be set, not both. */
-		out->is_write = !!(exitq & 0x2);
-	}
+	out->phys_addr = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
+	/* We don't enable dirty/accessed bit updated in EPTP,
+	 * so only read of write flags can be set, not both. */
+	out->is_write = !!(exitq & 0x2);
 }
