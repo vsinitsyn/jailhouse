@@ -124,6 +124,18 @@ static struct kobject *cells_dir;
 
 #define MIN(a, b)	((a) < (b) ? (a) : (b))
 
+#ifdef CONFIG_X86
+u32 jailhouse_use_vmcall = -1;
+
+static void init_use_vmcall_flag(void)
+{
+	if (boot_cpu_has(X86_FEATURE_SVM))
+		jailhouse_use_vmcall = 0;
+	if (boot_cpu_has(X86_FEATURE_VMX))
+		jailhouse_use_vmcall = 1;
+}
+#endif
+
 struct jailhouse_cpu_stats_attr {
 	struct kobj_attribute kattr;
 	unsigned int code;
@@ -1038,6 +1050,10 @@ static int __init jailhouse_init(void)
 		goto remove_cells_dir;
 
 	register_reboot_notifier(&jailhouse_shutdown_nb);
+
+#ifdef CONFIG_X86
+	init_use_vmcall_flag();
+#endif
 
 	return 0;
 

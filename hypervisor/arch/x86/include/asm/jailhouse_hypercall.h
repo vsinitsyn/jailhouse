@@ -12,8 +12,20 @@
 
 #define JAILHOUSE_BASE		0xfffffffff0000000
 
-#define JAILHOUSE_CALL_INS	"vmcall"
+/*
+ * As this is never called on a CPU without VM extensions,
+ * we assume that where VMCALL isn't available, VMMCALL is.
+ */
+#define JAILHOUSE_CALL_CODE	\
+	"cmp $0x01, %1\n\t"\
+	"jnz 1f\n\t"\
+	"vmcall\n\t"\
+	"jmp 2f\n\t"\
+	"1: vmmcall\n\t"\
+	"2:"
+
 #define JAILHOUSE_CALL_RESULT	"=a" (result)
+#define JAILHOUSE_USE_VMCALL	"m" (jailhouse_use_vmcall)
 #define JAILHOUSE_CALL_NUM	"a" (num)
 #define JAILHOUSE_CALL_ARG1	"D" (arg1)
 #define JAILHOUSE_CALL_ARG2	"S" (arg2)
@@ -29,6 +41,29 @@
 
 #ifndef __ASSEMBLY__
 
+/**
+ * @defgroup Hypercalls
+ *
+ * The hypercall subsystem provides an interface for cells
+ * to call into Jailhouse.
+ *
+ * @{
+ */
+
+/**
+ * This variable selects an x86 hypercall instruction to be used by
+ * jailhouse_call(), jailhouse_call_arg1(), and jailhouse_call_arg2().
+ * A caller should define and initialize the variable before calling
+ * any of these functions.
+ *
+ * The variable should be treated as flag with boolean-like semantics:
+ * @li 0 (false) means VMCALL shouldn't be used.
+ *     Current implementation will issue VMMCALL instead.
+ * @li 1 (true) means VMCALL should be used.
+ * @li Any other value should be considered as "undefined".
+ */
+extern __u32 jailhouse_use_vmcall;
+
 struct jailhouse_comm_region {
 	COMM_REGION_GENERIC_HEADER;
 
@@ -40,9 +75,9 @@ static inline __u32 jailhouse_call(__u32 num)
 {
 	__u32 result;
 
-	asm volatile(JAILHOUSE_CALL_INS
+	asm volatile(JAILHOUSE_CALL_CODE
 		: JAILHOUSE_CALL_RESULT
-		: JAILHOUSE_CALL_NUM
+		: JAILHOUSE_USE_VMCALL, JAILHOUSE_CALL_NUM
 		: "memory");
 	return result;
 }
@@ -51,9 +86,10 @@ static inline __u32 jailhouse_call_arg1(__u32 num, unsigned long arg1)
 {
 	__u32 result;
 
-	asm volatile(JAILHOUSE_CALL_INS
+	asm volatile(JAILHOUSE_CALL_CODE
 		: JAILHOUSE_CALL_RESULT
-		: JAILHOUSE_CALL_NUM, JAILHOUSE_CALL_ARG1
+		: JAILHOUSE_USE_VMCALL,
+		  JAILHOUSE_CALL_NUM, JAILHOUSE_CALL_ARG1
 		: "memory");
 	return result;
 }
@@ -63,9 +99,10 @@ static inline __u32 jailhouse_call_arg2(__u32 num, unsigned long arg1,
 {
 	__u32 result;
 
-	asm volatile(JAILHOUSE_CALL_INS
+	asm volatile(JAILHOUSE_CALL_CODE
 		: JAILHOUSE_CALL_RESULT
-		: JAILHOUSE_CALL_NUM, JAILHOUSE_CALL_ARG1, JAILHOUSE_CALL_ARG2
+		: JAILHOUSE_USE_VMCALL,
+		  JAILHOUSE_CALL_NUM, JAILHOUSE_CALL_ARG1, JAILHOUSE_CALL_ARG2
 		: "memory");
 	return result;
 }
@@ -89,5 +126,7 @@ jailhouse_send_reply_from_cell(struct jailhouse_comm_region *comm_region,
 	asm volatile("mfence" : : : "memory");
 	comm_region->reply_from_cell = reply;
 }
+
+/** @} **/
 
 #endif /* !__ASSEMBLY__ */

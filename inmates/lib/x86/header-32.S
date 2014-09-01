@@ -48,6 +48,16 @@ start32:
 	mov $(X86_CR0_PG | X86_CR0_WP | X86_CR0_PE),%eax
 	mov %eax,%cr0
 
+	mov $1,%eax
+	cpuid
+	test $0x20,%ecx
+	jz svm
+	movl $1,(jailhouse_use_vmcall)
+	jmp run_main
+svm:
+	movl $0,(jailhouse_use_vmcall)
+
+run_main:
 	mov $stack_top,%esp
 
 	mov $INMATE_DS32,%eax
@@ -84,3 +94,6 @@ gdt_ptr:
 	.global loader_pdpt
 loader_pdpt:
 	.long	0x00000083
+	.global jailhouse_use_vmcall
+jailhouse_use_vmcall:
+	.long	0xffffffff
