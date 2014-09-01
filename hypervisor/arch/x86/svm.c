@@ -926,8 +926,7 @@ void vcpu_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 	switch (vmcb->exitcode) {
 		case VMEXIT_INVALID:
 			panic_printk("FATAL: VM-Entry failure, error %d\n", vmcb->exitcode);
-			dump_guest_regs(guest_regs, vmcb);
-			return;
+			break;
 		case VMEXIT_NMI:
 			cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_MANAGEMENT]++;
 			/* Temporarily enable GIF to consume pending NMI */
@@ -962,8 +961,7 @@ void vcpu_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 				return;
 			break;
 		case VMEXIT_NPF:
-			if (!has_avic &&
-			    /* (vmcb->exitinfo1 & 0x7) == 0x7 && */
+			if (/* (vmcb->exitinfo1 & 0x7) == 0x7 && */
 			    vmcb->exitinfo2 >= XAPIC_BASE &&
 			    vmcb->exitinfo2 < XAPIC_BASE + PAGE_SIZE) {
 				/* APIC access in non-AVIC mode */
