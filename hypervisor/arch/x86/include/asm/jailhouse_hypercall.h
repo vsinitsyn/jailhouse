@@ -12,11 +12,23 @@
 
 #define JAILHOUSE_BASE		0xfffffffff0000000
 
-#define JAILHOUSE_CALL_INS	"vmcall"
+#define JAILHOUSE_CALL_CODE	\
+	"pushq %%rax\n\t"\
+	"mov $1, %%eax\n\t"\
+	"cpuid\n\t"\
+	"popq %%rax\n\t"\
+	"test $0x10, %%ecx\n\t"\
+	"jz 1f\n\t"\
+	"vmcall\n\t"\
+	"jmp 2f\n\t"\
+	"1: vmmcall\n\t"\
+	"2:"
+
 #define JAILHOUSE_CALL_RESULT	"=a" (result)
 #define JAILHOUSE_CALL_NUM	"a" (num)
 #define JAILHOUSE_CALL_ARG1	"D" (arg1)
 #define JAILHOUSE_CALL_ARG2	"S" (arg2)
+#define JAILHOUSE_CALL_CLOBBERS	"ebx", "ecx", "edx", "memory"
 
 /* CPU statistics */
 #define JAILHOUSE_CPU_STAT_VMEXITS_PIO		JAILHOUSE_GENERIC_CPU_STATS
@@ -39,10 +51,10 @@ static inline __u32 jailhouse_call(__u32 num)
 {
 	__u32 result;
 
-	asm volatile(JAILHOUSE_CALL_INS
+	asm volatile(JAILHOUSE_CALL_CODE
 		: JAILHOUSE_CALL_RESULT
 		: JAILHOUSE_CALL_NUM
-		: "memory");
+		: JAILHOUSE_CALL_CLOBBERS);
 	return result;
 }
 
@@ -50,10 +62,10 @@ static inline __u32 jailhouse_call_arg1(__u32 num, unsigned long arg1)
 {
 	__u32 result;
 
-	asm volatile(JAILHOUSE_CALL_INS
+	asm volatile(JAILHOUSE_CALL_CODE
 		: JAILHOUSE_CALL_RESULT
 		: JAILHOUSE_CALL_NUM, JAILHOUSE_CALL_ARG1
-		: "memory");
+		: JAILHOUSE_CALL_CLOBBERS);
 	return result;
 }
 
@@ -62,10 +74,10 @@ static inline __u32 jailhouse_call_arg2(__u32 num, unsigned long arg1,
 {
 	__u32 result;
 
-	asm volatile(JAILHOUSE_CALL_INS
+	asm volatile(JAILHOUSE_CALL_CODE
 		: JAILHOUSE_CALL_RESULT
 		: JAILHOUSE_CALL_NUM, JAILHOUSE_CALL_ARG1, JAILHOUSE_CALL_ARG2
-		: "memory");
+		: JAILHOUSE_CALL_CLOBBERS);
 	return result;
 }
 

@@ -143,7 +143,7 @@ void vcpu_handle_hypercall(struct registers *guest_regs,
 	unsigned long arg_mask = long_mode ? (u64)-1 : (u32)-1;
 	unsigned long code = guest_regs->rax;
 
-	vcpu_skip_emulated_instruction(cpu_data, X86_INST_LEN_VMCALL);
+	vcpu_skip_emulated_instruction(cpu_data, X86_INST_LEN_HYPERCALL);
 
 	if ((!long_mode && vcpu_get_rflags(cpu_data) & X86_RFLAGS_VM) ||
 	    (vcpu_get_cs_selector(cpu_data) & 3) != 0) {
@@ -154,9 +154,9 @@ void vcpu_handle_hypercall(struct registers *guest_regs,
 	guest_regs->rax = hypercall(cpu_data, code, guest_regs->rdi & arg_mask,
 				    guest_regs->rsi & arg_mask);
 	if (guest_regs->rax == -ENOSYS)
-		printk("CPU %d: Unknown vmcall %d, RIP: %p\n",
+		printk("CPU %d: Unknown hypercall %d, RIP: %p\n",
 		       cpu_data->cpu_id, code,
-		       vcpu_get_rip(cpu_data) - X86_INST_LEN_VMCALL);
+		       vcpu_get_rip(cpu_data) - X86_INST_LEN_HYPERCALL);
 
 	if (code == JAILHOUSE_HC_DISABLE && guest_regs->rax == 0)
 		vcpu_deactivate_vmm(guest_regs, cpu_data);
