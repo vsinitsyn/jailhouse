@@ -50,8 +50,8 @@ static struct paging npt_paging[NPT_PAGE_DIR_LEVELS];
 
 static u8 __attribute__((aligned(PAGE_SIZE))) msrpm[][0x2000/4] = {
 	[ SVM_MSRPM_0000 ] = {
-		[      0/4 ...  0x017/4 ] = 0,    /* 0x01b (w) */
-		[  0x018/4 ...  0x01b/4 ] = 0x80,
+		[      0/4 ...  0x017/4 ] = 0,
+		[  0x018/4 ...  0x01b/4 ] = 0x80, /* 0x01b (w) */
 		[  0x01c/4 ...  0x7ff/4 ] = 0,
 		[  0x800/4 ...  0x803/4 ] = 0x90, /* 0x802 (r), 0x803 (r) */
 		[  0x804/4 ...  0x807/4 ] = 0,
