@@ -399,6 +399,9 @@ void vcpu_exit(struct per_cpu *cpu_data)
 
 	cpu_data->svm_state = SVMOFF;
 
+	/* We are leaving - set the GIF */
+	asm volatile ("stgi" : : : "memory");
+
 	efer = read_msr(MSR_EFER);
 	efer &= ~EFER_SVME;
 	write_msr(MSR_EFER, efer);
