@@ -306,14 +306,9 @@ int vcpu_vendor_cell_init(struct cell *cell)
 	if (!has_avic) {
 		/*
 		 * Map xAPIC as is; reads are passed, writes are trapped.
-		 *
-		 * FIXME: This is known not to work in nested SVM setup, so
-		 * for now, all access is traped (here and in
-		 * vcpu_handle_exit() as well).
 		 */
 		flags = PAGE_READONLY_FLAGS |
-			/* PAGE_FLAG_US | */
-			PAGE_FLAG_WRITETHROUGH |
+			PAGE_FLAG_US |
 			PAGE_FLAG_UNCACHED;
 		err = page_map_create(&cell->svm.npt_structs, XAPIC_BASE,
 				      PAGE_SIZE, XAPIC_BASE,
@@ -957,7 +952,7 @@ void vcpu_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 				return;
 			break;
 		case VMEXIT_NPF:
-			if (/* (vmcb->exitinfo1 & 0x7) == 0x7 && */
+			if ((vmcb->exitinfo1 & 0x7) == 0x7 &&
 			    vmcb->exitinfo2 >= XAPIC_BASE &&
 			    vmcb->exitinfo2 < XAPIC_BASE + PAGE_SIZE) {
 				/* APIC access in non-AVIC mode */

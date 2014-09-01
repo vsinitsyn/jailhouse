@@ -8,10 +8,17 @@
  *  -virtfs local,path=/local/path,security_model=passthrough,mount_tag=host \
  *  -cpu kvm64,-kvm_pv_eoi,-kvm_steal_time,-kvm_asyncpf,-kvmclock,+vmx,+x2apic
  *
+ * For AMD-based setups:
+ * qemu-system-x86_64 /path/to/image -m 1G -enable-kvm -smp 4 \
+ *  -virtfs local,path=/local/path,security_model=passthrough,mount_tag=host \
+ *  -cpu host,-kvm_pv_eoi,-kvm_steal_time,-kvm_asyncpf,-kvmclock,+svm,+x2apic
+ *
  * Copyright (c) Siemens AG, 2013
+ * Copyright (c) Valentine Sinitsyn, 2014
  *
  * Authors:
  *  Jan Kiszka <jan.kiszka@siemens.com>
+ *  Valentine Sinitsyn <valentine.sinitsyn@gmail.com>
  *
  * This work is licensed under the terms of the GNU GPL, version 2.  See
  * the COPYING file in the top-level directory.
