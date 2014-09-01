@@ -35,7 +35,12 @@
 #include <asm/vmcb.h>
 #include <asm/vcpu.h>
 
-#define SVM_CR0_CLEARED_BITS	(~(X86_CR0_CD | X86_CR0_NW))
+/*
+ * NW bit is ignored by all modern processors, however some
+ * combinations of NW and CD bits are prohibited by SVM (see APMv2,
+ * Sect. 15.5). To handle this, we alway keep the NW bit off.
+ */
+#define SVM_CR0_CLEARED_BITS	~X86_CR0_NW
 
 static bool has_avic, has_assists;
 
