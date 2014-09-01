@@ -532,7 +532,7 @@ static void vcpu_reset(struct per_cpu *cpu_data, unsigned int sipi_vector)
 	bool ok = true;
 
 	vmcb->cr0 = X86_CR0_NW | X86_CR0_CD | X86_CR0_ET;
-	vmcb->cr4 = 0;
+	vmcb->cr3 = 0;
 	vmcb->cr4 = 0;
 
 	vmcb->rflags = 0x02;
@@ -595,7 +595,7 @@ static void vcpu_reset(struct per_cpu *cpu_data, unsigned int sipi_vector)
 	vmcb->idtr.limit = 0xffff;
 	vmcb->idtr.access_rights = 0;
 
-	vmcb->efer = 0;
+	vmcb->efer = EFER_SVME;
 
 	/* These MSRs are undefined on reset */
 	vmcb->star = 0;
