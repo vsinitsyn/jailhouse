@@ -69,7 +69,11 @@ struct {
 		[ 0x300/8 ...  0x5ff/8] = -1,
 		[ 0x600/8 ...  0x607/8] = 0xf0, /* acpi-evt */
 		[ 0x608/8 ... 0xdfff/8] = -1,
+#ifdef CONFIG_UART_OXPCIE952
 		[0xe000/8 ... 0xe007/8] = 0, /* OXPCIe952 serial2 */
+#else
+		[0xe000/8 ... 0xe007/8] = -1,
+#endif
 		[0xe008/8 ... 0xffff/8] = -1,
 	},
 };
