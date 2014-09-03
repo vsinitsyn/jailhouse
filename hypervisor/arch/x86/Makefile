@@ -15,21 +15,23 @@
 COMMON_OBJECTS := apic.o dbg-write.o entry.o setup.o control.o mmio.o \
 	 paging.o ../../pci.o pci.o ioapic.o vcpu.o
 
-# Can't list built-in-{amd,intel}.o in obj-y together, because Kbuild will
-# try to build both vmx.o and svm.o then. However, headers like <asm/percpu.h>
-# are configured either for SVM or for VMX (not both), so this will certainly fail.
-ifneq ($(jailhouse-amd_DEFS),)
-obj-y := built-in-amd.o
-else
-obj-y := built-in-intel.o
-endif
+# Avoid building built-in-amd.o and built-in-intel.o simultaneously, as
+# it will certainly fail (only jailhouse-amd_DEFS or jailhouse-intel_DEFS
+# are passed to this Makefile, but not both).
+obj-y := $(subst $(obj)/,,$(MAKECMDGOALS))
 
-built-in-amd-y += $(COMMON_OBJECTS) svm.o amd_iommu.o
+define BUILD_JAILHOUSE_VARIANT_template
+$$(obj)/%-$(1).o: c_flags += $$(jailhouse-$(1)_DEFS)
+$$(obj)/%-$(1).o: a_flags += $$(jailhouse-$(1)_DEFS)
 
-built-in-intel-y += $(COMMON_OBJECTS) vmx.o vtd.o
+$$(obj)/%-$(1).o: $$(obj)/%.S
+	$$(call if_changed_dep,as_o_S)
 
-$(obj)/built-in-amd.o: c_flags += $(jailhouse-amd_DEFS)
-$(obj)/built-in-amd.o: a_flags += $(jailhouse-amd_DEFS)
+$$(obj)/%-$(1).o: $$(obj)/%.c
+	$$(call if_changed_rule,cc_o_c)
 
-$(obj)/built-in-intel.o: c_flags += $(jailhouse-intel_DEFS)
-$(obj)/built-in-intel.o: a_flags += $(jailhouse-intel_DEFS)
+built-in-$(1)-y += $(2)
+endef
+
+$(eval $(call BUILD_JAILHOUSE_VARIANT_template,amd,$(COMMON_OBJECTS:.o=-amd.o) svm-amd.o amd_iommu-amd.o))
+$(eval $(call BUILD_JAILHOUSE_VARIANT_template,intel,$(COMMON_OBJECTS:.o=-intel.o) vmx-intel.o vtd-intel.o))
