@@ -57,7 +57,11 @@ struct {
 		[     0/8 ...  0x3f7/8] = -1,
 		[ 0x3f8/8 ...  0x3ff/8] = 0, /* serial1 */
 		[ 0x400/8 ... 0xe00f/8] = -1,
+#ifdef CONFIG_UART_OXPCIE952
 		[0xe010/8 ... 0xe017/8] = 0, /* OXPCIe952 serial1 */
+#else
+		[0xe010/8 ... 0xe017/8] = -1,
+#endif
 		[0xe018/8 ... 0xffff/8] = -1,
 	},
 };
