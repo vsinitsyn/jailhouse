@@ -33,6 +33,7 @@ struct jailhouse_comm_region {
 	COMM_REGION_GENERIC_HEADER;
 
 	__u16 pm_timer_address;
+	__u8 pm_timer_val_ext;
 };
 
 static inline __u32 jailhouse_call(__u32 num)
