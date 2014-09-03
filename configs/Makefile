@@ -10,6 +10,10 @@
 # the COPYING file in the top-level directory.
 #
 
+ifneq ($(wildcard $(src)/../hypervisor/include/jailhouse/config.h),)
+KBUILD_CFLAGS += -include $(src)/../hypervisor/include/jailhouse/config.h
+endif
+
 ccflags-y := -I$(src)/../hypervisor/include
 
 OBJCOPYFLAGS := -O binary
