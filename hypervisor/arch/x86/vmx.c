@@ -24,7 +24,9 @@
 #include <asm/i8042.h>
 #include <asm/io.h>
 #include <asm/ioapic.h>
+#include <asm/iommu.h>
 #include <asm/pci.h>
+#include <asm/vcpu.h>
 #include <asm/vmx.h>
 #include <asm/vtd.h>
 
@@ -223,7 +225,7 @@ static void ept_set_next_pt(pt_entry_t pte, unsigned long next_pt)
 		EPT_FLAG_WRITE | EPT_FLAG_EXECUTE;
 }
 
-int vmx_init(void)
+int vcpu_vendor_init(void)
 {
 	unsigned int n;
 	int err;
@@ -250,7 +252,7 @@ int vmx_init(void)
 		msr_bitmap[VMX_MSR_BMP_0000_WRITE][MSR_X2APIC_ICR/8] = 0x01;
 	}
 
-	return vmx_cell_init(&root_cell);
+	return vcpu_cell_init(&root_cell);
 }
 
 unsigned long arch_page_map_gphys2phys(struct per_cpu *cpu_data,
@@ -261,7 +263,7 @@ unsigned long arch_page_map_gphys2phys(struct per_cpu *cpu_data,
 				  flags);
 }
 
-int vmx_cell_init(struct cell *cell)
+int vcpu_cell_init(struct cell *cell)
 {
 	const u8 *pio_bitmap = jailhouse_cell_pio_bitmap(cell->config);
 	u32 pio_bitmap_size = cell->config->pio_bitmap_size;
@@ -286,7 +288,7 @@ int vmx_cell_init(struct cell *cell)
 			      EPT_FLAG_READ|EPT_FLAG_WRITE|EPT_FLAG_WB_TYPE,
 			      PAGE_MAP_NON_COHERENT);
 	if (err) {
-		vmx_cell_exit(cell);
+		vcpu_cell_exit(cell);
 		return err;
 	}
 
@@ -325,7 +327,7 @@ int vmx_cell_init(struct cell *cell)
 	return 0;
 }
 
-int vmx_map_memory_region(struct cell *cell,
+int vcpu_map_memory_region(struct cell *cell,
 			  const struct jailhouse_memory *mem)
 {
 	u64 phys_start = mem->phys_start;
@@ -344,14 +346,14 @@ int vmx_map_memory_region(struct cell *cell,
 			       mem->virt_start, flags, PAGE_MAP_NON_COHERENT);
 }
 
-int vmx_unmap_memory_region(struct cell *cell,
+int vcpu_unmap_memory_region(struct cell *cell,
 			    const struct jailhouse_memory *mem)
 {
 	return page_map_destroy(&cell->vmx.ept_structs, mem->virt_start,
 				mem->size, PAGE_MAP_NON_COHERENT);
 }
 
-void vmx_cell_exit(struct cell *cell)
+void vcpu_cell_exit(struct cell *cell)
 {
 	const u8 *root_pio_bitmap =
 		jailhouse_cell_pio_bitmap(root_cell.config);
@@ -405,7 +407,7 @@ static void vmx_invept(void)
 }
 
 /* To make prototype compatible with svm_tlb_flush() */
-void vmx_tlb_flush(struct per_cpu *cpu_data __attribute__((unused)))
+void vcpu_tlb_flush(struct per_cpu *cpu_data __attribute__((unused)))
 {
 	vmx_invept();
 }
@@ -437,7 +439,7 @@ static bool vmx_set_guest_cr(int cr, unsigned long val)
 	return ok;
 }
 
-static bool vmx_set_cell_config(struct cell *cell)
+static bool vcpu_set_cell_config(struct cell *cell)
 {
 	u8 *io_bitmap;
 	bool ok = true;
@@ -572,7 +574,7 @@ static bool vmcs_setup(struct per_cpu *cpu_data)
 	ok &= vmcs_write64(APIC_ACCESS_ADDR,
 			   page_map_hvirt2phys(apic_access_page));
 
-	ok &= vmx_set_cell_config(cpu_data->cell);
+	ok &= vcpu_set_cell_config(cpu_data->cell);
 
 	ok &= vmcs_write32(EXCEPTION_BITMAP, 0);
 
@@ -596,7 +598,7 @@ static bool vmcs_setup(struct per_cpu *cpu_data)
 	return ok;
 }
 
-int vmx_cpu_init(struct per_cpu *cpu_data)
+int vcpu_init(struct per_cpu *cpu_data)
 {
 	unsigned long cr4, feature_ctrl, mask;
 	u32 revision_id;
@@ -651,7 +653,7 @@ int vmx_cpu_init(struct per_cpu *cpu_data)
 	return 0;
 }
 
-void vmx_cpu_exit(struct per_cpu *cpu_data)
+void vcpu_exit(struct per_cpu *cpu_data)
 {
 	if (cpu_data->vmx_state == VMXOFF)
 		return;
@@ -666,7 +668,7 @@ void vmx_cpu_exit(struct per_cpu *cpu_data)
 	write_cr4(read_cr4() & ~X86_CR4_VMXE);
 }
 
-void vmx_cpu_activate_vmm(struct per_cpu *cpu_data)
+void vcpu_activate_vmm(struct per_cpu *cpu_data)
 {
 	/* We enter Linux at the point arch_entry would return to as well.
 	 * rax is cleared to signal success to the caller. */
@@ -689,7 +691,7 @@ void vmx_cpu_activate_vmm(struct per_cpu *cpu_data)
 }
 
 static void __attribute__((noreturn))
-vmx_cpu_deactivate_vmm(struct registers *guest_regs, struct per_cpu *cpu_data)
+vcpu_deactivate_vmm(struct registers *guest_regs, struct per_cpu *cpu_data)
 {
 	unsigned long *stack = (unsigned long *)vmcs_read64(GUEST_RSP);
 	unsigned long linux_ip = vmcs_read64(GUEST_RIP);
@@ -747,7 +749,7 @@ vmx_cpu_deactivate_vmm(struct registers *guest_regs, struct per_cpu *cpu_data)
 	__builtin_unreachable();
 }
 
-static void vmx_cpu_reset(struct per_cpu *cpu_data, unsigned int sipi_vector)
+static void vcpu_reset(struct per_cpu *cpu_data, unsigned int sipi_vector)
 {
 	unsigned long val;
 	bool ok = true;
@@ -829,7 +831,7 @@ static void vmx_cpu_reset(struct per_cpu *cpu_data, unsigned int sipi_vector)
 	val &= ~VM_ENTRY_IA32E_MODE;
 	ok &= vmcs_write32(VM_ENTRY_CONTROLS, val);
 
-	ok &= vmx_set_cell_config(cpu_data->cell);
+	ok &= vcpu_set_cell_config(cpu_data->cell);
 
 	if (!ok) {
 		panic_printk("FATAL: CPU reset failed\n");
@@ -837,7 +839,7 @@ static void vmx_cpu_reset(struct per_cpu *cpu_data, unsigned int sipi_vector)
 	}
 }
 
-static void vmx_schedule_vmexit(struct per_cpu *cpu_data)
+static void vcpu_schedule_vmexit(struct per_cpu *cpu_data)
 {
 	u32 pin_based_ctrl;
 
@@ -849,15 +851,15 @@ static void vmx_schedule_vmexit(struct per_cpu *cpu_data)
 	vmcs_write32(PIN_BASED_VM_EXEC_CONTROL, pin_based_ctrl);
 }
 
-void vmx_cpu_park(struct per_cpu *cpu_data)
+void vcpu_park(struct per_cpu *cpu_data)
 {
-	vmx_cpu_reset(cpu_data, 0);
+	vcpu_reset(cpu_data, 0);
 	vmcs_write32(GUEST_ACTIVITY_STATE, GUEST_ACTIVITY_HLT);
 }
 
-void vmx_nmi_handler(struct per_cpu *cpu_data)
+void vcpu_nmi_handler(struct per_cpu *cpu_data)
 {
-	vmx_schedule_vmexit(cpu_data);
+	vcpu_schedule_vmexit(cpu_data);
 }
 
 static void vmx_disable_preemption_timer(void)
@@ -909,7 +911,7 @@ static void vmx_handle_hypercall(struct registers *guest_regs,
 		       vmcs_read64(GUEST_RIP) - X86_INST_LEN_VMCALL);
 
 	if (code == JAILHOUSE_HC_DISABLE && guest_regs->rax == 0)
-		vmx_cpu_deactivate_vmm(guest_regs, cpu_data);
+		vcpu_deactivate_vmm(guest_regs, cpu_data);
 }
 
 static bool vmx_handle_cr(struct registers *guest_regs,
@@ -1095,7 +1097,7 @@ static bool vmx_handle_ept_violation(struct registers *guest_regs,
 		result = pci_mmio_access_handler(cpu_data->cell, is_write,
 						 phys_addr, &val);
 	if (result == 0)
-		result = vtd_mmio_access_handler(is_write, phys_addr, &val);
+		result = iommu_mmio_access_handler(is_write, phys_addr, &val);
 
 	if (result == 1) {
 		if (!is_write)
@@ -1113,7 +1115,7 @@ invalid_access:
 	return false;
 }
 
-void vmx_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
+void vcpu_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 {
 	u32 reason = vmcs_read32(VM_EXIT_REASON);
 	int sipi_vector;
@@ -1131,10 +1133,10 @@ void vmx_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 		if (sipi_vector >= 0) {
 			printk("CPU %d received SIPI, vector %x\n",
 			       cpu_data->cpu_id, sipi_vector);
-			vmx_cpu_reset(cpu_data, sipi_vector);
+			vcpu_reset(cpu_data, sipi_vector);
 			memset(guest_regs, 0, sizeof(*guest_regs));
 		}
-		vtd_check_pending_faults(cpu_data);
+		iommu_check_pending_faults(cpu_data);
 		return;
 	case EXIT_REASON_CPUID:
 		vmx_skip_emulated_instruction(X86_INST_LEN_CPUID);
@@ -1219,7 +1221,7 @@ void vmx_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 	panic_halt();
 }
 
-void vmx_entry_failure(struct per_cpu *cpu_data)
+void vcpu_entry_failure(struct per_cpu *cpu_data)
 {
 	panic_printk("FATAL: vmresume failed, error %d\n",
 		     vmcs_read32(VM_INSTRUCTION_ERROR));

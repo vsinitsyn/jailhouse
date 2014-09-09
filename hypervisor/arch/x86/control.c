@@ -17,7 +17,8 @@
 #include <asm/apic.h>
 #include <asm/control.h>
 #include <asm/ioapic.h>
-#include <asm/vm.h>
+#include <asm/iommu.h>
+#include <asm/vcpu.h>
 
 struct exception_frame {
 	u64 vector;
@@ -33,7 +34,7 @@ int arch_cell_create(struct per_cpu *cpu_data, struct cell *cell)
 {
 	int err;
 
-	err = vm_cell_init(cell);
+	err = vcpu_cell_init(cell);
 	if (err)
 		return err;
 
@@ -55,7 +56,7 @@ int arch_cell_create(struct per_cpu *cpu_data, struct cell *cell)
 error_iommu_exit:
 	iommu_cell_exit(cell);
 error_vm_exit:
-	vm_cell_exit(cell);
+	vcpu_cell_exit(cell);
 	return err;
 }
 
@@ -64,13 +65,13 @@ int arch_map_memory_region(struct cell *cell,
 {
 	int err;
 
-	err = vm_map_memory_region(cell, mem);
+	err = vcpu_map_memory_region(cell, mem);
 	if (err)
 		return err;
 
 	err = iommu_map_memory_region(cell, mem);
 	if (err)
-		vm_unmap_memory_region(cell, mem);
+		vcpu_unmap_memory_region(cell, mem);
 	return err;
 }
 
@@ -83,7 +84,7 @@ int arch_unmap_memory_region(struct cell *cell,
 	if (err)
 		return err;
 
-	return vm_unmap_memory_region(cell, mem);
+	return vcpu_unmap_memory_region(cell, mem);
 }
 
 void arch_cell_destroy(struct per_cpu *cpu_data, struct cell *cell)
@@ -91,7 +92,7 @@ void arch_cell_destroy(struct per_cpu *cpu_data, struct cell *cell)
 	ioapic_cell_exit(cell);
 	pci_cell_exit(cell);
 	iommu_cell_exit(cell);
-	vm_cell_exit(cell);
+	vcpu_cell_exit(cell);
 }
 
 /* all root cell CPUs (except cpu_data) have to be stopped */
@@ -108,7 +109,7 @@ void arch_config_commit(struct per_cpu *cpu_data,
 				    cpu_data->cpu_id)
 			per_cpu(cpu)->flush_virt_caches = true;
 
-	vm_tlb_flush(cpu_data);
+	vcpu_tlb_flush(cpu_data);
 
 	iommu_config_commit(cell_added_removed);
 	pci_config_commit(cell_added_removed);
@@ -235,7 +236,7 @@ int x86_handle_events(struct per_cpu *cpu_data)
 
 		if (cpu_data->shutdown_cpu) {
 			apic_clear(cpu_data);
-			vm_cpu_exit(cpu_data);
+			vcpu_exit(cpu_data);
 			asm volatile("1: hlt; jmp 1b");
 		}
 
@@ -254,7 +255,7 @@ int x86_handle_events(struct per_cpu *cpu_data)
 
 	if (cpu_data->flush_virt_caches) {
 		cpu_data->flush_virt_caches = false;
-		vm_tlb_flush(cpu_data);
+		vcpu_tlb_flush(cpu_data);
 	}
 
 	spin_unlock(&cpu_data->control_lock);
@@ -262,7 +263,7 @@ int x86_handle_events(struct per_cpu *cpu_data)
 	/* wait_for_sipi is only modified on this CPU, so checking outside of
 	 * control_lock is fine */
 	if (cpu_data->wait_for_sipi)
-		vm_cpu_park(cpu_data);
+		vcpu_park(cpu_data);
 	else if (sipi_vector >= 0)
 		apic_clear(cpu_data);
 
@@ -298,5 +299,5 @@ void arch_panic_halt(void)
 	x86_enter_wait_for_sipi(cpu_data);
 	spin_unlock(&cpu_data->control_lock);
 
-	vm_cpu_park(cpu_data);
+	vcpu_park(cpu_data);
 }

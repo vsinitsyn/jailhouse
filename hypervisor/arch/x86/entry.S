@@ -127,16 +127,10 @@ vector=10
 	iretq
 .endm
 
-/* XXX: These #ifdefs will go away as soon as we move to link-time decisions */
 	.global nmi_entry
 	.balign 16
 nmi_entry:
-#ifdef ENABLE_VMX
-	interrupt_entry vmx_nmi_handler
-#endif
-#ifdef ENABLE_SVM
-	interrupt_entry svm_nmi_handler
-#endif
+	interrupt_entry vcpu_nmi_handler
 
 	.global irq_entry
 	.balign 16
@@ -167,7 +161,7 @@ vm_exit:
 
 	mov %rsp,%rdi
 	lea -PERCPU_STACK_END+16*8(%rsp),%rsi
-	call vmx_handle_exit
+	call vcpu_handle_exit
 
 	pop %r15
 	pop %r14
@@ -189,7 +183,7 @@ vm_exit:
 	vmresume
 
 	lea -PERCPU_STACK_END(%rsp),%rdi
-	jmp vmx_entry_failure
+	jmp vcpu_entry_failure
 #endif
 #ifdef ENABLE_SVM
 	.globl vm_exit
@@ -216,7 +210,7 @@ vm_exit:
 
 	mov %rsp,%rdi
 	lea -PERCPU_STACK_END+1*8+16*8(%rsp),%rsi
-	call svm_handle_exit
+	call vcpu_handle_exit
 
 	pop %r15
 	pop %r14

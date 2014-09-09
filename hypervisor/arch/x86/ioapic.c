@@ -15,8 +15,8 @@
 #include <jailhouse/printk.h>
 #include <asm/apic.h>
 #include <asm/ioapic.h>
+#include <asm/iommu.h>
 #include <asm/spinlock.h>
-#include <asm/vm.h>
 
 #include <jailhouse/cell-config.h>
 
