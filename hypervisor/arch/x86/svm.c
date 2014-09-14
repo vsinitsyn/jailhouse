@@ -162,7 +162,7 @@ static int vmcb_setup(struct per_cpu *cpu_data)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
 
-	memset(vmcb, sizeof(struct vmcb), 0);
+	memset(vmcb, 0, sizeof(struct vmcb));
 
 	vmcb->cr0 = read_cr0() & SVM_CR0_CLEARED_BITS;
 	vmcb->cr3 = cpu_data->linux_cr3;
