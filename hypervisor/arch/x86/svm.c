@@ -763,7 +763,7 @@ static bool svm_handle_cr(struct registers *guest_regs,
 			  struct per_cpu *cpu_data)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
-	unsigned long reg, val;
+	unsigned long reg = -1, val;
 	bool ok = true;
 
 	if (has_assists) {
