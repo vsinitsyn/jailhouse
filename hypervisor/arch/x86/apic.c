@@ -45,6 +45,9 @@ static u32 apic_reserved_bits[] = {
 	[0x39 ... 0x3d] = -1,
 	[0x3e]		= 0xfffffff4,	/* DCR */
 	[0x3f]		= 0xffffff00,	/* Self IPI */
+#ifdef ENABLE_SVM
+	[0x50]		= 0,   /* Extended Interrupt LVT */
+#endif
 };
 static void *xapic_page;
 
