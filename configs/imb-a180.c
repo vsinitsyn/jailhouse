@@ -13,7 +13,7 @@
  * Adjusted by Valentine Sinitsyn <valentine.sinitsyn@gmail.com>
  *
  * NOTE: This config expects the following to be appended to your kernel cmdline
- *       "memmap=0x4200000$0x3be00000"
+ *       "memmap=0x4200000$0x3b000000"
  */
 
 #include <linux/types.h>
@@ -24,7 +24,7 @@
 struct {
 	struct jailhouse_system header;
 	__u64 cpus[1];
-	struct jailhouse_memory mem_regions[41];
+	struct jailhouse_memory mem_regions[42];
 	struct jailhouse_irqchip irqchips[1];
 	__u8 pio_bitmap[0x2000];
 	struct jailhouse_pci_device pci_devices[26];
@@ -32,7 +32,7 @@ struct {
 } __attribute__((packed)) config = {
 	.header = {
 		.hypervisor_memory = {
-			.phys_start = 0x3c000000,
+			.phys_start = 0x3b000000,
 			.size = 0x4000000,
 		},
 		.platform_info.x86 = {
@@ -85,19 +85,19 @@ struct {
 			.size = 0x20000,
 			.flags = JAILHOUSE_MEM_READ,
 		},
-		/* MemRegion: 00100000-3c000000 : System RAM */
+		/* MemRegion: 00100000-3affffff : System RAM */
 		{
 			.phys_start = 0x00100000,
 			.virt_start = 0x00100000,
-			.size = 0x3bf00000,
+			.size = 0x3af00000,
 			.flags = JAILHOUSE_MEM_READ | JAILHOUSE_MEM_WRITE |
 				JAILHOUSE_MEM_EXECUTE | JAILHOUSE_MEM_DMA,
 		},
-		/* MemRegion: 40000000-9db10fff : System RAM */
+		/* MemRegion: 3f200000-9db10fff : System RAM */
 		{
-			.phys_start = 0x40000000,
-			.virt_start = 0x40000000,
-			.size = 0x5db11000,
+			.phys_start = 0x3f200000,
+			.virt_start = 0x3f200000,
+			.size = 0x5e911000,
 			.flags = JAILHOUSE_MEM_READ | JAILHOUSE_MEM_WRITE |
 				JAILHOUSE_MEM_EXECUTE | JAILHOUSE_MEM_DMA,
 		},
@@ -353,6 +353,13 @@ struct {
 			.size = 0x1000000,
 			.flags = JAILHOUSE_MEM_READ | JAILHOUSE_MEM_WRITE |
 				JAILHOUSE_MEM_EXECUTE | JAILHOUSE_MEM_DMA,
+		},
+		/* MemRegion: 3f000000-3f1fffff : JAILHOUSE Inmate Memory */
+		{
+			.phys_start = 0x3f000000,
+			.virt_start = 0x3f000000,
+			.size = 0x200000,
+			.flags = JAILHOUSE_MEM_READ | JAILHOUSE_MEM_WRITE,
 		},
 	},
 
