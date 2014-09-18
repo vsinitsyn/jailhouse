@@ -297,9 +297,9 @@ struct vmcb {
 	u8 res11[3];
 	u8 cpl;
 	u32 res12;
-	u64 efer;					/* offset 1024 + 0xD0 */
+	u64 efer;			/* offset 1024 + 0xD0 */
 	u64 res13[14];
-	u64 cr4;					/* loffset 1024 + 0x148 */
+	u64 cr4;			/* loffset 1024 + 0x148 */
 	u64 cr3;
 	u64 cr0;
 	u64 dr7;

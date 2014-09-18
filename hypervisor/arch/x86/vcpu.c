@@ -177,7 +177,8 @@ bool vcpu_handle_io_access(struct registers *guest_regs,
 	result = x86_pci_config_handler(guest_regs, cpu_data->cell, io.port,
 					io.in, io.size);
 	if (result == 0)
-		result = i8042_access_handler(guest_regs, io.port, io.in, io.size);
+		result = i8042_access_handler(guest_regs, io.port,
+				              io.in, io.size);
 
 	if (result == 1) {
 		vcpu_skip_emulated_instruction(cpu_data, io.inst_len);
@@ -221,7 +222,8 @@ bool vcpu_handle_pt_violation(struct registers *guest_regs,
 						 pf.phys_addr, &val);
 
 	if (result == 0)
-		result = iommu_mmio_access_handler(pf.is_write, pf.phys_addr, &val);
+		result = iommu_mmio_access_handler(pf.is_write,
+				                   pf.phys_addr, &val);
 
 	if (result == 1) {
 		if (!pf.is_write)

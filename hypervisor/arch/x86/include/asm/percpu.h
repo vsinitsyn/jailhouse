@@ -26,7 +26,8 @@
 #define PERCPU_STACK_END		PAGE_SIZE
 #define PERCPU_LINUX_SP			PERCPU_STACK_END
 #ifdef ENABLE_SVM
-#define PERCPU_VMCB_OFFSET		8192 /* offsetof(struct per_cpu, vmcb) */
+/* offsetof(struct per_cpu, vmcb) */
+#define PERCPU_VMCB_OFFSET		8192
 #define PERCPU_VMCB_RAX			(PERCPU_VMCB_OFFSET + 0x5f8)
 #endif
 

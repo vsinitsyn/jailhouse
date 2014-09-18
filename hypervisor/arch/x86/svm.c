@@ -142,7 +142,8 @@ static void set_svm_segment_from_segment(struct svm_segment *svm_segment,
 		svm_segment->access_rights = 0;
 	else {
 		ar = segment->access_rights;
-		svm_segment->access_rights = ((ar & 0xf000) >> 4) | (ar & 0x00ff);
+		svm_segment->access_rights =
+			((ar & 0xf000) >> 4) | (ar & 0x00ff);
 	}
 
 	svm_segment->limit = segment->limit;
@@ -234,14 +235,15 @@ unsigned long arch_page_map_gphys2phys(struct per_cpu *cpu_data,
 				       unsigned long gphys,
 				       unsigned long flags)
 {
-	return page_map_virt2phys(&cpu_data->cell->svm.npt_structs, gphys, flags);
+	return page_map_virt2phys(&cpu_data->cell->svm.npt_structs,
+			gphys, flags);
 }
 
 static void npt_set_next_pt(pt_entry_t pte, unsigned long next_pt)
 {
 	/* See APMv2, Section 15.25.5 */
-       *pte = (next_pt & 0x000ffffffffff000UL) |
-	       (PAGE_DEFAULT_FLAGS | PAGE_FLAG_US);
+	*pte = (next_pt & 0x000ffffffffff000UL) |
+		(PAGE_DEFAULT_FLAGS | PAGE_FLAG_US);
 }
 
 int vcpu_vendor_init(void)
@@ -261,7 +263,7 @@ int vcpu_vendor_init(void)
 
 	/* Nested paging is the same as the native one */
 	memcpy(npt_paging, x86_64_paging, sizeof(npt_paging));
-	for(n = 0; n < NPT_PAGE_DIR_LEVELS; n++)
+	for (n = 0; n < NPT_PAGE_DIR_LEVELS; n++)
 		npt_paging[n].set_next_pt = npt_set_next_pt;
 
 	/* Map guest parking code (shared between cells and CPUs) */
@@ -449,7 +451,8 @@ void vcpu_activate_vmm(struct per_cpu *cpu_data)
 		"jmp vm_exit"
 		: /* no output */
 		: "m" (vmcb_pa), "D" (cpu_data->linux_reg), "m" (host_stack)
-		: "memory", "r15", "r14", "r13", "r12", "rbx", "rbp", "rax", "cc");
+		: "memory", "r15", "r14", "r13", "r12",
+		  "rbx", "rbp", "rax", "cc");
 	__builtin_unreachable();
 }
 
@@ -627,7 +630,8 @@ static void vcpu_reset(struct per_cpu *cpu_data, unsigned int sipi_vector)
 	}
 }
 
-inline void vcpu_skip_emulated_instruction(struct per_cpu *cpu_data, unsigned int inst_len)
+inline void vcpu_skip_emulated_instruction(struct per_cpu *cpu_data,
+		unsigned int inst_len)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
 	vmcb->rip += inst_len;
@@ -763,7 +767,7 @@ static bool svm_handle_cr(struct registers *guest_regs,
 			  struct per_cpu *cpu_data)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
-	unsigned long reg = -1, val;
+	unsigned long reg = -1, val, bits;
 	bool ok = true;
 
 	if (has_assists) {
@@ -787,8 +791,9 @@ static bool svm_handle_cr(struct registers *guest_regs,
 		val = ((unsigned long *)guest_regs)[15 - reg];
 
 	vcpu_skip_emulated_instruction(cpu_data, X86_INST_LEN_MOV_TO_CR);
-	/* Flush TLB on PG/WP/CD/NW  change: See APMv2, Sect. 15.16 */
-	if ((val ^ vmcb->cr0) & (X86_CR0_PG | X86_CR0_WP | X86_CR0_CD | X86_CR0_NW))
+	/* Flush TLB on PG/WP/CD/NW change: See APMv2, Sect. 15.16 */
+	bits = (X86_CR0_PG | X86_CR0_WP | X86_CR0_CD | X86_CR0_NW);
+	if ((val ^ vmcb->cr0) & bits)
 		vcpu_tlb_flush(cpu_data);
 	/* TODO: better check for #GP reasons */
 	vmcb->cr0 = val & SVM_CR0_CLEARED_BITS;
@@ -800,7 +805,8 @@ out:
 	return ok;
 }
 
-static bool svm_handle_msr_read(struct registers *guest_regs, struct per_cpu *cpu_data)
+static bool svm_handle_msr_read(struct registers *guest_regs,
+		struct per_cpu *cpu_data)
 {
 	if (guest_regs->rcx >= MSR_X2APIC_BASE &&
 	    guest_regs->rcx <= MSR_X2APIC_END) {
@@ -814,7 +820,8 @@ static bool svm_handle_msr_read(struct registers *guest_regs, struct per_cpu *cp
 	}
 }
 
-static bool svm_handle_msr_write(struct registers *guest_regs, struct per_cpu *cpu_data)
+static bool svm_handle_msr_write(struct registers *guest_regs,
+		struct per_cpu *cpu_data)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
 	unsigned long efer;
@@ -879,8 +886,8 @@ static bool svm_handle_apic_access(struct registers *guest_regs,
 	return true;
 
 out_err:
-	panic_printk("FATAL: Unhandled APIC access, "
-			"offset %d, is_write: %d\n", offset, is_write);
+	panic_printk("FATAL: Unhandled APIC access, offset %d, is_write: %d\n",
+			offset, is_write);
 	return false;
 }
 
@@ -919,88 +926,88 @@ void vcpu_handle_exit(struct registers *guest_regs, struct per_cpu *cpu_data)
 	vmcb->clean_bits = 0xffffffff;
 
 	switch (vmcb->exitcode) {
-		case VMEXIT_INVALID:
-			panic_printk("FATAL: VM-Entry failure, error %d\n", vmcb->exitcode);
-			break;
-		case VMEXIT_NMI:
-			cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_MANAGEMENT]++;
-			/* Temporarily enable GIF to consume pending NMI */
-			asm volatile("stgi; clgi" : : : "memory");
-			sipi_vector = x86_handle_events(cpu_data);
-			if (sipi_vector >= 0) {
-				printk("CPU %d received SIPI, vector %x\n",
-						cpu_data->cpu_id, sipi_vector);
-				vcpu_reset(cpu_data, sipi_vector);
-				memset(guest_regs, 0, sizeof(*guest_regs));
-			}
-			iommu_check_pending_faults(cpu_data);
+	case VMEXIT_INVALID:
+		panic_printk("FATAL: VM-Entry failure, error %d\n",
+				vmcb->exitcode);
+		break;
+	case VMEXIT_NMI:
+		cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_MANAGEMENT]++;
+		/* Temporarily enable GIF to consume pending NMI */
+		asm volatile("stgi; clgi" : : : "memory");
+		sipi_vector = x86_handle_events(cpu_data);
+		if (sipi_vector >= 0) {
+			printk("CPU %d received SIPI, vector %x\n",
+					cpu_data->cpu_id, sipi_vector);
+			vcpu_reset(cpu_data, sipi_vector);
+			memset(guest_regs, 0, sizeof(*guest_regs));
+		}
+		iommu_check_pending_faults(cpu_data);
+		return;
+	case VMEXIT_CPUID:
+		/* FIXME: We are not intercepting CPUID now */
+		return;
+	case VMEXIT_VMMCALL:
+		vcpu_handle_hypercall(guest_regs, cpu_data);
+		return;
+	case VMEXIT_CR0_SEL_WRITE:
+		cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_CR]++;
+		if (svm_handle_cr(guest_regs, cpu_data))
 			return;
-		case VMEXIT_CPUID:
-			/* FIXME: We are not intercepting CPUID now */
+		break;
+	case VMEXIT_MSR:
+		cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_MSR]++;
+		if (!vmcb->exitinfo1)
+			res = svm_handle_msr_read(guest_regs, cpu_data);
+		else
+			res = svm_handle_msr_write(guest_regs, cpu_data);
+		if (res)
 			return;
-		case VMEXIT_VMMCALL:
-			vcpu_handle_hypercall(guest_regs, cpu_data);
-			return;
-		case VMEXIT_CR0_SEL_WRITE:
-			cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_CR]++;
-			if (svm_handle_cr(guest_regs, cpu_data))
+		break;
+	case VMEXIT_NPF:
+		if ((vmcb->exitinfo1 & 0x7) == 0x7 &&
+		     vmcb->exitinfo2 >= XAPIC_BASE &&
+		     vmcb->exitinfo2 < XAPIC_BASE + PAGE_SIZE) {
+			/* APIC access in non-AVIC mode */
+			cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_XAPIC]++;
+			if (svm_handle_apic_access(guest_regs, cpu_data))
 				return;
-			break;
-		case VMEXIT_MSR:
-			cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_MSR]++;
-			if (!vmcb->exitinfo1)
-				res = svm_handle_msr_read(guest_regs, cpu_data);
-			else
-				res = svm_handle_msr_write(guest_regs, cpu_data);
-			if (res)
+		} else {
+			/* General MMIO (IOAPIC, PCI etc) */
+			cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_MMIO]++;
+			if (vcpu_handle_pt_violation(guest_regs, cpu_data))
 				return;
-			break;
-		case VMEXIT_NPF:
-			if ((vmcb->exitinfo1 & 0x7) == 0x7 &&
-			    vmcb->exitinfo2 >= XAPIC_BASE &&
-			    vmcb->exitinfo2 < XAPIC_BASE + PAGE_SIZE) {
-				/* APIC access in non-AVIC mode */
-				cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_XAPIC]++;
-				if (svm_handle_apic_access(guest_regs, cpu_data))
-					return;
-			} else {
-				/* General MMIO (IOAPIC, PCI etc) */
-				cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_MMIO]++;
-				if (vcpu_handle_pt_violation(guest_regs, cpu_data))
-					return;
-			}
+		}
 
-			panic_printk("FATAL: Unhandled Nested Page Fault for (%p), "
-					"error code is %x\n", vmcb->exitinfo2,
-					vmcb->exitinfo1 & 0xf);
-			break;
-		case VMEXIT_XSETBV:
-			cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_XSETBV]++;
-			if (guest_regs->rax & X86_XCR0_FP &&
-			    (guest_regs->rax & ~cpuid_eax(0x0d)) == 0 &&
-			    guest_regs->rcx == 0 && guest_regs->rdx == 0) {
-				vcpu_skip_emulated_instruction(cpu_data, X86_INST_LEN_XSETBV);
-				asm volatile(
-					"xsetbv"
-					: /* no output */
-					: "a" (guest_regs->rax), "c" (0), "d" (0));
-				return;
-			}
-			panic_printk("FATAL: Invalid xsetbv parameters: "
-					"xcr[%d] = %x:%x\n", guest_regs->rcx,
-					guest_regs->rdx, guest_regs->rax);
-			break;
-		case VMEXIT_IOIO:
-			cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_PIO]++;
-			if (vcpu_handle_io_access(guest_regs, cpu_data))
-				return;
-			break;
-		/* TODO: Handle VMEXIT_AVIC_NOACCEL and VMEXIT_AVIC_INCOMPLETE_IPI */
-		default:
-			panic_printk("FATAL: Unexpected #VMEXIT, exitcode %x, "
-					"exitinfo1 %p exitinfo2 %p\n",
-					vmcb->exitcode, vmcb->exitinfo1,
-					vmcb->exitinfo2);
+		panic_printk("FATAL: Unhandled Nested Page Fault for (%p), "
+			     "error code is %x\n", vmcb->exitinfo2,
+			     vmcb->exitinfo1 & 0xf);
+		break;
+	case VMEXIT_XSETBV:
+		cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_XSETBV]++;
+		if (guest_regs->rax & X86_XCR0_FP &&
+		    (guest_regs->rax & ~cpuid_eax(0x0d)) == 0 &&
+		    guest_regs->rcx == 0 && guest_regs->rdx == 0) {
+			vcpu_skip_emulated_instruction(cpu_data, X86_INST_LEN_XSETBV);
+			asm volatile(
+				"xsetbv"
+				: /* no output */
+				: "a" (guest_regs->rax), "c" (0), "d" (0));
+			return;
+		}
+		panic_printk("FATAL: Invalid xsetbv parameters: "
+			     "xcr[%d] = %x:%x\n", guest_regs->rcx,
+			     guest_regs->rdx, guest_regs->rax);
+		break;
+	case VMEXIT_IOIO:
+		cpu_data->stats[JAILHOUSE_CPU_STAT_VMEXITS_PIO]++;
+		if (vcpu_handle_io_access(guest_regs, cpu_data))
+			return;
+		break;
+	/* TODO: Handle VMEXIT_AVIC_NOACCEL and VMEXIT_AVIC_INCOMPLETE_IPI */
+	default:
+		panic_printk("FATAL: Unexpected #VMEXIT, exitcode %x, "
+			     "exitinfo1 %p exitinfo2 %p\n",
+			     vmcb->exitcode, vmcb->exitinfo1, vmcb->exitinfo2);
 	}
 	dump_guest_regs(guest_regs, vmcb);
 	panic_halt();
