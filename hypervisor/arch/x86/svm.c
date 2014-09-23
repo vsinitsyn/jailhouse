@@ -42,6 +42,10 @@
  */
 #define SVM_CR0_CLEARED_BITS	~X86_CR0_NW
 
+#define MTRR_DEFTYPE		0x2ff
+
+#define PAT_RESET_VALUE		0x0007040600070406
+
 static bool has_avic, has_assists;
 
 static const struct segment invalid_seg;
@@ -52,7 +56,9 @@ static u8 __attribute__((aligned(PAGE_SIZE))) msrpm[][0x2000/4] = {
 	[ SVM_MSRPM_0000 ] = {
 		[      0/4 ...  0x017/4 ] = 0,
 		[  0x018/4 ...  0x01b/4 ] = 0x80, /* 0x01b (w) */
-		[  0x01c/4 ...  0x7ff/4 ] = 0,
+		[  0x01c/4 ...  0x2fb/4 ] = 0,
+		[  0x2fc/4 ...  0x2ff/4 ] = 0x80, /* 0x2ff (w) */
+		[  0x300/4 ...  0x7ff/4 ] = 0,
 		[  0x800/4 ...  0x803/4 ] = 0x90, /* 0x802 (r), 0x803 (r) */
 		[  0x804/4 ...  0x807/4 ] = 0,
 		[  0x808/4 ...  0x80b/4 ] = 0x93, /* 0x808 (rw), 0x80a (r), 0x80b (w) */
@@ -427,11 +433,12 @@ void vcpu_activate_vmm(struct per_cpu *cpu_data)
 	write_msr(MSR_KERNGS_BASE, 0);
 
 	/*
-	 * XXX: We don't set our own PAT here but rather rely on Linux PAT
-	 * settigs (and MTRRs). Potentially, a malicious Linux root cell can
-	 * set values different from what we expect, and interfere with APIC
-	 * virtualization in non-AVIC mode.
+	 * XXX: Jailhouse doesn't use PAT, so it is explicitly set to the
+	 * reset value. However, this value is later combined with vmcb->g_pat
+	 * (as per APMv2, Sect. 15.25.8) which may lead to subtle bugs as the
+	 * actual memory type might slightly differ from what Linux expects.
 	 */
+	write_msr(MSR_IA32_PAT, PAT_RESET_VALUE);
 
 	/* We enter Linux at the point arch_entry would return to as well.
 	 * rax is cleared to signal success to the caller. */
@@ -479,6 +486,7 @@ vcpu_deactivate_vmm(struct registers *guest_regs, struct per_cpu *cpu_data)
 	write_msr(MSR_CSTAR, vmcb->cstar);
 	write_msr(MSR_SFMASK, vmcb->sfmask);
 	write_msr(MSR_KERNGS_BASE, vmcb->kerngsbase);
+	write_msr(MSR_IA32_PAT, vmcb->g_pat);
 
 	cpu_data->linux_cr3 = vmcb->cr3;
 
@@ -615,7 +623,7 @@ static void vcpu_reset(struct per_cpu *cpu_data, unsigned int sipi_vector)
 	vmcb->sysenter_esp = 0;
 	vmcb->kerngsbase = 0;
 
-	vmcb->g_pat = 0x0007040600070406;
+	vmcb->g_pat = PAT_RESET_VALUE;
 
 	vmcb->dr7 = 0x00000400;
 
@@ -825,7 +833,7 @@ static bool svm_handle_msr_write(struct registers *guest_regs,
 		struct per_cpu *cpu_data)
 {
 	struct vmcb *vmcb = &cpu_data->vmcb;
-	unsigned long efer;
+	unsigned long efer, val;
 	bool result = true;
 
 	if (guest_regs->rcx >= MSR_X2APIC_BASE &&
@@ -842,6 +850,25 @@ static bool svm_handle_msr_write(struct registers *guest_regs,
 			vcpu_tlb_flush(cpu_data);
 		vmcb->efer = efer;
 		vmcb->clean_bits &= ~CLEAN_BITS_CRX;
+		goto out;
+	}
+	if (guest_regs->rcx == MTRR_DEFTYPE) {
+		val = (guest_regs->rax & 0xffffffff) | (guest_regs->rdx << 32);
+		/*
+		 * Quick (and very incomplete) guest MTRRs emulation.
+		 *
+		 * For Linux, emulating MTRR Enable bit seems to be enough.
+		 * If it is cleared, we set hPAT to all zeroes, effectively
+		 * making all NPT-mapped memory UC (see APMv2, Sect. 15.25.8).
+		 *
+		 * Otherwise, default PAT value is restored. This can also
+		 * make NPT-mapped memory's type different from what Linux
+		 * expects, however.
+		 */
+		if (val & 0x800)
+			write_msr(MSR_IA32_PAT, PAT_RESET_VALUE);
+		else
+			write_msr(MSR_IA32_PAT, 0);
 		goto out;
 	}
 
