@@ -282,8 +282,9 @@ int vcpu_vendor_init(void)
 	   see Sect. 16.3.1 in APMv2 */
 	if (using_x2apic) {
 		/* allow direct x2APIC access except for ICR writes */
-		memset(msrpm[SVM_MSRPM_0000], 0, sizeof(msrpm[SVM_MSRPM_0000]));
-		msrpm[SVM_MSRPM_0000][0x830/4] = 0x02;
+		memset(&msrpm[SVM_MSRPM_0000][MSR_X2APIC_BASE/4], 0,
+				(MSR_X2APIC_END - MSR_X2APIC_BASE + 1)/4);
+		msrpm[SVM_MSRPM_0000][MSR_X2APIC_ICR/4] = 0x02;
 	} else {
 		if (has_avic) {
 			avic_page = page_alloc(&remap_pool, 1);
