@@ -63,9 +63,16 @@ struct {
 			.mmconfig_end_bus = ${hex(mmconfig.end_bus)},
 			.pm_timer_address = ${hex(pm_timer_base)},
 			% if iommu_units:
-			.iommu_base = {
-				% for d in iommu_units:
-				${hex(d)},
+			.iommu_units = {
+				% for unit in iommu_units:
+				{
+					.base = ${hex(unit.base_addr)},
+					.size = ${hex(unit.mmio_size)},
+					% if unit.is_amd_iommu:
+					.amd_bdf = ${hex(unit.amd_bdf)},
+					.amd_cap = ${hex(unit.amd_cap)},
+				        % endif
+				},
 				% endfor
 			},
 			% endif

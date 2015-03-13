@@ -35,9 +35,15 @@ struct {
 			.mmconfig_base = 0xf8000000,
 			.mmconfig_end_bus = 0x3f,
 			.pm_timer_address = 0x1808,
-			.iommu_base = {
-				0xfed90000,
-				0xfed91000,
+			.iommu_units = {
+				{
+					.base = 0xfed90000,
+					.size = 0x1000,
+				},
+				{
+					.base = 0xfed91000,
+					.size = 0x1000,
+				},
 			},
 		},
 		.interrupt_limit = 256,

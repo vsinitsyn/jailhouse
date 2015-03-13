@@ -421,7 +421,7 @@ static int vtd_init_ir_emulation(unsigned int unit_no, void *reg_base)
 
 	root_cell.arch.vtd.ir_emulation = true;
 
-	base = system_config->platform_info.x86.iommu_base[unit_no];
+	base = system_config->platform_info.x86.iommu_units[unit_no].base;
 	mmio_region_register(&root_cell, base, PAGE_SIZE,
 			     vtd_unit_access_handler, unit);
 
@@ -454,6 +454,7 @@ int iommu_init(void)
 {
 	unsigned long version, caps, ecaps, ctrls, sllps_caps = ~0UL;
 	unsigned int units, pt_levels, num_did, n;
+	struct jailhouse_iommu *iommu;
 	void *reg_base;
 	u64 base_addr;
 	int err;
@@ -484,7 +485,8 @@ int iommu_init(void)
 		return -ENOMEM;
 
 	for (n = 0; n < units; n++) {
-		base_addr = system_config->platform_info.x86.iommu_base[n];
+		iommu = &system_config->platform_info.x86.iommu_units[n];
+		base_addr = iommu->base;
 
 		reg_base = dmar_reg_base + n * PAGE_SIZE;
 

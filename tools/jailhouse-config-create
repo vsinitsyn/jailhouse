@@ -514,6 +514,20 @@ class IOMemRegionTree:
         return regions
 
 
+class IOMMUConfig(object):
+    def __init__(self, props):
+        self.base_addr = props['base_addr']
+        self.mmio_size = props['mmio_size']
+        if 'amd_bdf' in props:
+            self.amd_bdf = props['amd_bdf']
+        if 'amd_cap' in props:
+            self.amd_cap = props['amd_cap']
+
+    @property
+    def is_amd_iommu(self):
+        return hasattr(self, 'amd_bdf')
+
+
 def parse_iomem(pcidevices):
     regions = IOMemRegionTree.parse_iomem_tree(
         IOMemRegionTree.parse_iomem_file())
@@ -690,7 +704,11 @@ def parse_dmar(pcidevices, ioapics):
             if len(units) >= 8:
                 raise RuntimeError('Too many DMAR units. '
                                    'Raise JAILHOUSE_MAX_IOMMU_UNITS.')
-            units.append(base)
+            # Always map one page per DMAR unit
+            units.append(IOMMUConfig({
+                'base_addr': base,
+                'mmio_size': 4096
+            }))
             if flags & 1:
                 for d in pcidevices:
                     if d.iommu is None:
@@ -765,11 +783,12 @@ def parse_dmar(pcidevices, ioapics):
     return units, regions
 
 
-def parse_ivrs(pcidevices, ioapics):
-    def format_bdf(bdf):
-        bus, dev, fun = (bdf >> 8) & 0xff, (bdf >> 3) & 0x1f, bdf & 0x7
-        return '%02x:%02x.%x' % (bus, dev, fun)
+def format_pci_bdf(bdf):
+    bus, dev, fun = (bdf >> 8) & 0xff, (bdf >> 3) & 0x1f, bdf & 0x7
+    return '%02x:%02x.%x' % (bus, dev, fun)
 
+
+def parse_ivrs(pcidevices, ioapics):
     f = input_open('/sys/firmware/acpi/tables/IVRS', 'rb')
     signature = f.read(4)
     if signature != b'IVRS':
@@ -786,19 +805,20 @@ def parse_ivrs(pcidevices, ioapics):
     regions = []
     # BDF of devices that are permitted outside IOMMU: root complex
     iommu_skiplist = set([0x0])
+    ivhd_blocks = 0
     while length > 0:
         (block_type, block_length) = struct.unpack('<BxH', f.read(4))
         if block_type in [0x10, 0x11]:
+            ivhd_blocks += 1
+            if ivhd_blocks > 1:
+                raise RuntimeError('Jailhouse doesn\'t support more than one '
+                                   'AMD IOMMU per PCI function.')
             # IVHD block
-            (iommu_id, base_addr, pci_seg) = \
-                struct.unpack('<HxxQH', f.read(14))
-            length -= block_length
-            block_length -= 18
+            ivhd_fields = struct.unpack('<HHQHxxL', f.read(20))
+            iommu_bdf, caps_ofs, base_addr, pci_seg, iommu_feat = ivhd_fields
 
-            # IOMMU EFR image and reserved area
-            skip_bytes = 6 if block_type == 0x10 else 22
-            f.seek(skip_bytes, os.SEEK_CUR)
-            block_length -= skip_bytes
+            length -= block_length
+            block_length -= 24
 
             if pci_seg != 0:
                 raise RuntimeError('We do not support multiple PCI segments')
@@ -809,10 +829,22 @@ def parse_ivrs(pcidevices, ioapics):
 
             # We shouldn't map IOMMU to the cells
             for i, d in enumerate(pcidevices):
-                if d.bdf() == iommu_id:
+                if d.bdf() == iommu_bdf:
                     del pcidevices[i]
 
-            units.append(base_addr)
+            if (iommu_feat & (0xF << 13)) and (iommu_feat & (0x3F << 17)):
+                # Performance Counters are supported, allocate 512K
+                mmio_size = 524288
+            else:
+                # Allocate 16K
+                mmio_size = 16384
+
+            units.append(IOMMUConfig({
+                'base_addr': base_addr,
+                'mmio_size': mmio_size,
+                'amd_bdf': iommu_bdf,
+                'amd_cap': caps_ofs,
+            }))
 
             bdf_start_range = None
             while block_length > 0:
@@ -869,9 +901,10 @@ def parse_ivrs(pcidevices, ioapics):
 
         elif type in [0x20, 0x21, 0x22]:
             # IVMD block
+            # FIXME: Also UNTESTED due to lack of the appropriate hardware.
+            ivmd_fields = struct.unpack('<BBHHHxxxxxxxxQQ', f.read(32))
             (block_type, block_flags, block_length,
-             device_id, aux_data, mem_addr, mem_len) = struct.unpack(
-                 '<BBHHHxxxxxxxxQQ')
+             device_id, aux_data, mem_addr, mem_len) = ivmd_fields
             length -= block_length
 
             if int(block_flags):

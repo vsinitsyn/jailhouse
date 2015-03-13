@@ -40,8 +40,13 @@ struct {
 			.mmconfig_base = 0xe0000000,
 			.mmconfig_end_bus = 0xff,
 			.pm_timer_address = 0x808,
-			.iommu_base = {
-				0xfeb80000,
+			.iommu_units = {
+				{
+					.base = 0xfeb80000,
+					.size = 0x80000,
+					.amd_bdf = 0x02,
+					.amd_cap = 0x40,
+				},
 			},
 		},
 		.device_limit = 128,
