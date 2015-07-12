@@ -137,6 +137,39 @@ void pci_write_config(u16 bdf, u16 address, u32 value, unsigned int size)
 		mmio_write32(mmcfg_addr, value);
 }
 
+
+/**
+ * Find PCI capability block by id value.
+ * @param bdf		16-bit bus/device/function ID of target.
+ * @param cap_id	Capability ID to look for.
+ *
+ * @return Offset in configuration space or 0 if not found
+ */
+u8 pci_find_capability_by_id(u16 bdf, u8 cap_id)
+{
+	/* Protect against malformed Capabilities List */
+	unsigned int ttl = 48;
+	u32 device_status;
+	u16 offset, buf;
+
+	device_status = pci_read_config(bdf, PCI_CFG_STATUS, 2);
+	if (!(device_status & PCI_STS_CAPS))
+		return 0;
+
+	/* See PCI Local Bus Sepcification, Ver. 3.0, Sect.  6.7 */
+	offset = pci_read_config(bdf, PCI_CFG_CAPS, 1) & PCI_CAP_PTR_MASK;
+	while (offset != 0 && ttl-- != 0) {
+		buf = pci_read_config(bdf, offset, 2);
+		if ((buf & 0x00ff) == cap_id)
+			goto out;
+		offset = ((buf & 0xff00) >> 8) & PCI_CAP_PTR_MASK;
+	}
+
+	offset = 0;
+out:
+	return offset;
+}
+
 /**
  * Look up device owned by a cell.
  * @param[in] cell	Owning cell.

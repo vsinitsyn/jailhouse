@@ -40,6 +40,8 @@
 
 #define PCI_IVSHMEM_NUM_MMIO_REGIONS	2
 
+#define PCI_CAP_PTR_MASK	~0x03
+
 struct cell;
 
 /**
@@ -150,6 +152,8 @@ int pci_init(void);
 
 u32 pci_read_config(u16 bdf, u16 address, unsigned int size);
 void pci_write_config(u16 bdf, u16 address, u32 value, unsigned int size);
+
+u8 pci_find_capability_by_id(u16 bdf, u8 cap_id);
 
 struct pci_device *pci_get_assigned_device(const struct cell *cell, u16 bdf);
 
