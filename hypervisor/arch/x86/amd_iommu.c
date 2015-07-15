@@ -856,6 +856,98 @@ void iommu_shutdown(void)
 	}
 }
 
+static void amd_iommu_print_event(struct amd_iommu *iommu,
+		                  struct evt_log_entry *entry)
+{
+	u8 evt_code = (entry->data[1] >> 28) & 0xf;
+	u64 op1, op2;
+
+	op1 = to_u64(entry->data[1] & 0x0fffffff, entry->data[0]);
+	op2 = to_u64(entry->data[3], entry->data[2]);
+
+	/* TODO: Can we handle these errors more gracefully? */
+	if (evt_code == EVENT_TYPE_ILL_CMD_ERR) {
+		printk("FATAL: IOMMU %d reported ILLEGAL_COMMAND_ERROR\n",
+				iommu->idx);
+		panic_stop();
+	}
+
+	if (evt_code == EVENT_TYPE_CMD_HW_ERR) {
+		printk("FATAL: IOMMU %d reported COMMAND_HARDWARE_ERROR\n",
+				iommu->idx);
+		panic_stop();
+	}
+
+	/*
+	 * TODO: For now, very basic printer. Consider adapting
+	 * iommu_print_event() from the Linux kerel (amd_iommu.c).
+	 */
+	printk("AMD IOMMU %d reported event\n", iommu->idx);
+	/* Exclude EVENT_COUNTER_ZERO, as it doesn't report domain ID. */
+	if (evt_code != EVENT_TYPE_EVT_CNT_ZERO)
+		printk(" DeviceId (bus:dev.func): %02x:%02x.%x\n",
+				PCI_BDF_PARAMS(entry->data[0] & 0xffff));
+
+	printk(" EventCode: %lx Operand 1: %lx, Operand 2: %lx\n",
+			evt_code, op1, op2);
+}
+
+static void amd_iommu_restart_event_log(struct amd_iommu *iommu)
+{
+	void *base = iommu->mmio_base;
+
+	wait_for_zero(base + MMIO_STATUS_OFFSET, MMIO_STATUS_EVT_RUN_MASK);
+
+	mmio_write64_field(base + MMIO_CONTROL_OFFSET, CONTROL_EVT_LOG_EN, 0);
+
+	/* Simply start from the scratch */
+	mmio_write64(base + MMIO_EVT_HEAD_OFFSET, 0);
+	mmio_write64(base + MMIO_EVT_TAIL_OFFSET, 0);
+
+	/* Clear EventOverflow (RW1C) */
+	mmio_write64_field(base + MMIO_STATUS_OFFSET,
+			MMIO_STATUS_EVT_OVERFLOW_MASK, 1);
+
+	/* Bring logging back */
+	mmio_write64_field(base + MMIO_CONTROL_OFFSET, CONTROL_EVT_LOG_EN, 1);
+}
+
+static void amd_iommu_poll_events(struct amd_iommu *iommu)
+{
+	struct evt_log_entry *evt;
+	u32 head, tail;
+	u64 status;
+
+	status = mmio_read64(iommu->mmio_base + MMIO_STATUS_OFFSET);
+
+	if (status & MMIO_STATUS_EVT_OVERFLOW_MASK) {
+		printk("IOMMU %d: Event Log overflow occurred, "
+				"some events were lost!\n", iommu->idx);
+		amd_iommu_restart_event_log(iommu);
+	}
+
+	while (status & MMIO_STATUS_EVT_INT_MASK) {
+		/* Clear EventLogInt (RW1C) */
+		mmio_write64_field(iommu->mmio_base + MMIO_STATUS_OFFSET,
+				MMIO_STATUS_EVT_INT_MASK, 1);
+
+		head = mmio_read32(iommu->mmio_base + MMIO_EVT_HEAD_OFFSET);
+		tail = mmio_read32(iommu->mmio_base + MMIO_EVT_TAIL_OFFSET);
+
+		while (head != tail) {
+			evt = (struct evt_log_entry *)(
+					iommu->evt_log_base + head);
+			amd_iommu_print_event(iommu, evt);
+			head = (head + sizeof(*evt)) % EVT_LOG_SIZE;
+		}
+
+		mmio_write32(iommu->evt_log_base + MMIO_EVT_HEAD_OFFSET, head);
+
+		/* Re-read status to catch new events, as Linux does */
+		status = mmio_read64(iommu->mmio_base + MMIO_STATUS_OFFSET);
+	}
+}
+
 void iommu_check_pending_faults(void)
 {
 	/* TODO: Implement */
