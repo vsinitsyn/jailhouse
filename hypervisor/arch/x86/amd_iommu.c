@@ -713,9 +713,81 @@ static void amd_iommu_completion_wait(struct amd_iommu *iommu)
 	wait_for_zero(&sem, -1);
 }
 
+/* Parts of this code derives from vtd_init_fault_nmi(). */
+static void amd_iommu_init_fault_nmi(void)
+{
+	union pci_msi_registers msi = {{ 0 }};
+	struct per_cpu *cpu_data;
+	struct amd_iommu *iommu;
+	int n;
+
+	/*
+	 * This assumes that at least one bit is set somewhere because we
+	 * don't support configurations where Linux is left with no CPUs.
+	 */
+	for (n = 0; root_cell.cpu_set->bitmap[n] == 0; n++)
+		/* Empty loop */;
+	cpu_data = per_cpu(ffsl(root_cell.cpu_set->bitmap[n]));
+
+	/*
+	 * Save this value globally to avoid multiple reports of the same
+	 * case from different CPUs.
+	 */
+	fault_reporting_cpu_id = cpu_data->cpu_id;
+
+	for_each_iommu(iommu) {
+		msi.raw[0] = pci_read_config(iommu->bdf, iommu->msi_cap, 4);
+
+		/* Disable MSI during interrupt reprogramming */
+		msi.msg32.enable = 0;
+		pci_write_config(iommu->bdf, iommu->msi_cap, msi.raw[0], 4);
+
+		/* Send NMI to fault_reporting_cpu */
+		msi.msg64.address = (MSI_ADDRESS_VALUE << MSI_ADDRESS_SHIFT) |
+			            ((cpu_data->apic_id << 12) & 0xff000);
+		msi.msg64.data = MSI_DM_NMI;
+
+		/* Enable MSI back */
+		msi.msg32.enable = 1;
+
+		/* Write new MSI capabilty block */
+		for (n = 3; n >= 0; n--)
+			pci_write_config(iommu->bdf, iommu->msi_cap + 4 * n,
+					 msi.raw[n], 4);
+	}
+
+	/*
+	 * There is a race window in between we change fault_reporting_cpu_id
+	 * and actually reprogram the MSI. To prevent event loss, signal an
+	 * interrupt when done, so iommu_check_pending_faults() is called
+	 * upon completion even if no further NMIs due to events would occurr.
+	 *
+	 * Note we can't simply use CMD_COMPL_WAIT_INT_MASK in
+	 * amd_iommu_completion_wait(), as it seems that IOMMU either signal
+	 * an interrupt or do memory write, but not both.
+	 */
+	 apic_send_nmi_ipi(cpu_data);
+}
+
 void iommu_config_commit(struct cell *cell_added_removed)
 {
-	/* TODO: Implement */
+	struct amd_iommu *iommu;
+
+	/* Ensure we'll get NMI on comletion, or if anything goes wrong. */
+	if (cell_added_removed)
+		amd_iommu_init_fault_nmi();
+
+	for_each_iommu(iommu) {
+		/* Flush caches */
+		if (cell_added_removed) {
+			amd_iommu_invalidate_pages(iommu,
+					cell_added_removed->id & 0xffff);
+			amd_iommu_invalidate_pages(iommu,
+					root_cell.id & 0xffff);
+		}
+		/* Execute all commands in the buffer */
+		amd_iommu_completion_wait(iommu);
+	}
 }
 
 struct apic_irq_message iommu_get_remapped_root_int(unsigned int iommu,
