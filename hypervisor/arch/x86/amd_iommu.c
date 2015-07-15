@@ -493,15 +493,160 @@ int iommu_unmap_memory_region(struct cell *cell,
 			mem->size, PAGING_COHERENT);
 }
 
+static void amd_iommu_inv_dte(struct amd_iommu *iommu, u16 device_id)
+{
+	/* Double braces to please GCC */
+	struct cmd_buf_entry invalidate_dte = {{ 0 }};
+
+	invalidate_dte.data[0] = device_id;
+	CMD_SET_TYPE(&invalidate_dte, CMD_INV_DEVTAB_ENTRY);
+
+	amd_iommu_submit_command(iommu, &invalidate_dte);
+}
+
+static struct dev_table_entry * get_dev_table_entry(struct amd_iommu *iommu,
+						    u16 bdf, bool allocate)
+{
+	struct dev_table_entry *devtable_seg;
+	u8 seg_idx, seg_shift;
+	u64 reg_base, reg_val;
+	u16 seg_mask;
+	u32 seg_size;
+
+	/*
+         * FIXME: Device Table Segmentation is UNTESTED, as I don't have the hardware
+	 * which supports this feature.
+	 */
+	if (!iommu->dev_tbl_seg_sup) {
+		seg_mask = 0;
+		seg_idx = 0;
+		seg_size = DEV_TABLE_SIZE;
+	} else {
+		seg_shift = BITS_PER_SHORT - iommu->dev_tbl_seg_sup;
+		seg_mask = ~((1 << seg_shift) - 1);
+		seg_idx = (seg_mask & bdf) >> seg_shift;
+		seg_size = DEV_TABLE_SIZE / (1 << iommu->dev_tbl_seg_sup);
+	}
+
+	/*
+	 * Device table segmentation is tricky in Jailhouse. As cells can
+	 * "share" the IOMMU, we don't know maximum bdf in each segment
+	 * because cells are initialized independently. Thus, we can't simply
+	 * adjust segment sizes for our maximum bdfs.
+	 *
+	 * The next best things is to lazily allocate segments as we add
+	 * device using maximum possible size for segments. In the worst case
+	 * scenario, we waste around 2M chunk per IOMMU.
+	 */
+	devtable_seg = iommu->devtable_segments[seg_idx];
+	if (!devtable_seg) {
+		/* If we are not permitted to allocate, just fail */
+		if (!allocate)
+			return NULL;
+
+		devtable_seg = page_alloc(&mem_pool, PAGES(seg_size));
+		if (!devtable_seg)
+			return NULL;
+		iommu->devtable_segments[seg_idx] = devtable_seg;
+
+		if (!seg_idx)
+			reg_base = MMIO_DEV_TABLE_BASE;
+		else
+			reg_base = MMIO_DEV_TABLE_SEG_BASE + (seg_idx - 1) * 8;
+
+		/* Size in Kbytes = (m + 1) * 4, see Sect 3.3.6 */
+		reg_val = paging_hvirt2phys(devtable_seg) |
+			(seg_size / PAGE_SIZE - 1);
+		mmio_write64(iommu->mmio_base + reg_base, reg_val);
+	}
+
+	return &devtable_seg[bdf & ~seg_mask];
+}
+
 int iommu_add_pci_device(struct cell *cell, struct pci_device *device)
 {
-	/* TODO: Implement */
-	return 0;
+	struct dev_table_entry *dte = NULL;
+	struct amd_iommu *iommu;
+	u8 iommu_idx;
+	int err = 0;
+	u16 bdf;
+
+	// HACK for QEMU
+	if (iommu_units_count == 0)
+		return 0;
+
+	if (device->info->type == JAILHOUSE_PCI_TYPE_IVSHMEM)
+		return 0;
+
+	iommu_idx = device->info->iommu;
+	if (iommu_idx > JAILHOUSE_MAX_IOMMU_UNITS) {
+		err = -ERANGE;
+		goto out;
+	}
+
+	iommu = &iommu_units[iommu_idx];
+	bdf = device->info->bdf;
+
+	dte = get_dev_table_entry(iommu, bdf, true);
+	if (!dte) {
+		err = -ENOMEM;
+		goto out;
+	}
+
+	memset(dte, 0, sizeof(*dte));
+
+	/* DomainID */
+	dte->data[1] = cell->id & 0xffff;
+
+	/* Translation information */
+	dte->data[0] = AMD_IOMMU_PTE_IR | AMD_IOMMU_PTE_IW |
+		paging_hvirt2phys(cell->arch.amd_iommu.pg_structs.root_table) |
+		((amd_iommu_pt_levels & DTE_MODE_MASK) << DTE_MODE_SHIFT) |
+		DTE_TRANSLATION_VALID | DTE_VALID;
+
+	/* TODO: Interrupt remapping. For now, just forward them unmapped. */
+
+	/* Flush caches, just to be sure. */
+	arch_paging_flush_cpu_caches(dte, sizeof(*dte));
+
+	amd_iommu_inv_dte(iommu, bdf);
+
+out:
+	return trace_error(err);
 }
 
 void iommu_remove_pci_device(struct pci_device *device)
 {
-	/* TODO: Implement */
+	struct dev_table_entry *dte = NULL;
+	struct amd_iommu *iommu;
+	u8 iommu_idx;
+	u16 bdf;
+
+	// HACK for QEMU
+	if (iommu_units_count == 0)
+		return;
+
+	if (device->info->type == JAILHOUSE_PCI_TYPE_IVSHMEM)
+		return;
+
+	iommu_idx = device->info->iommu;
+	if (iommu_idx > JAILHOUSE_MAX_IOMMU_UNITS)
+		return;
+
+	iommu = &iommu_units[iommu_idx];
+	bdf = device->info->bdf;
+
+	dte = get_dev_table_entry(iommu, bdf, false);
+	if (!dte)
+		return;
+
+	/* Clear *_VALID flags */
+	dte->data[0] = 0;
+
+	/* Flush caches, just to be sure. */
+	arch_paging_flush_cpu_caches(dte, sizeof(*dte));
+
+	amd_iommu_inv_dte(iommu, bdf);
 }
 
 void iommu_cell_exit(struct cell *cell)
