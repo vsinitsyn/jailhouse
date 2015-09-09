@@ -71,6 +71,7 @@ struct {
 					% if unit.is_amd_iommu:
 					.amd_bdf = ${hex(unit.amd_bdf)},
 					.amd_cap = ${hex(unit.amd_cap)},
+					.amd_features = ${hex(unit.amd_features)},
 				        % endif
 				},
 				% endfor

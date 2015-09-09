@@ -46,6 +46,7 @@ struct {
 					.size = 0x80000,
 					.amd_bdf = 0x02,
 					.amd_cap = 0x40,
+					.amd_features = 0x80048824,
 				},
 			},
 		},

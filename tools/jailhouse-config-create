@@ -522,6 +522,8 @@ class IOMMUConfig(object):
             self.amd_bdf = props['amd_bdf']
         if 'amd_cap' in props:
             self.amd_cap = props['amd_cap']
+        if 'amd_features' in props:
+            self.amd_features = props['amd_features']
 
     @property
     def is_amd_iommu(self):
@@ -844,6 +846,9 @@ def parse_ivrs(pcidevices, ioapics):
                 'mmio_size': mmio_size,
                 'amd_bdf': iommu_bdf,
                 'amd_cap': caps_ofs,
+                # All IVHD block types except 0x10 have exact EFR image
+                # so none of bits we are interested in could be overridden.
+                'amd_features': iommu_feat if block_type == 0x10 else 0
             }))
 
             bdf_start_range = None
