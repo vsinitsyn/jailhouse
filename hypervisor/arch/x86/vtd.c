@@ -978,7 +978,7 @@ int iommu_map_interrupt(struct cell *cell, u16 device_id, unsigned int vector,
 			struct apic_irq_message irq_msg)
 {
 	union vtd_irte irte;
-	int base_index;
+	int base_index, err;
 
 	// HACK for QEMU
 	if (dmar_units == 0)
@@ -1004,17 +1004,9 @@ int iommu_map_interrupt(struct cell *cell, u16 device_id, unsigned int vector,
 		 */
 		goto update_irte;
 
-	/*
-	 * Validate delivery mode and destination(s).
-	 * Note that we do support redirection hint only in logical
-	 * destination mode.
-	 */
-	if ((irq_msg.delivery_mode != APIC_MSG_DLVR_FIXED &&
-	     irq_msg.delivery_mode != APIC_MSG_DLVR_LOWPRI) ||
-	    irq_msg.dest_logical != irq_msg.redir_hint)
-		return -EINVAL;
-	if (!apic_filter_irq_dest(cell, &irq_msg))
-		return -EPERM;
+	err = iommu_validate_irq_msg(cell, &irq_msg);
+	if (err)
+		return err;
 
 	irte.field.dest_logical = irq_msg.dest_logical;
 	irte.field.redir_hint = irq_msg.redir_hint;

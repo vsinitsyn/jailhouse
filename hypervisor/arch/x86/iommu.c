@@ -11,6 +11,7 @@
  */
 
 #include <jailhouse/control.h>
+#include <asm/apic.h>
 #include <asm/iommu.h>
 
 unsigned int fault_reporting_cpu_id;
@@ -41,4 +42,21 @@ struct per_cpu *iommu_select_fault_reporting_cpu(void)
 	fault_reporting_cpu_id = cpu_data->cpu_id;
 
 	return cpu_data;
+}
+
+int iommu_validate_irq_msg(struct cell *cell, struct apic_irq_message *irq_msg)
+{
+	/*
+	 * Validate delivery mode and destination(s).
+	 * Note that we do support redirection hint only in logical
+	 * destination mode.
+	 */
+	if ((irq_msg->delivery_mode != APIC_MSG_DLVR_FIXED &&
+	     irq_msg->delivery_mode != APIC_MSG_DLVR_LOWPRI) ||
+	    irq_msg->dest_logical != irq_msg->redir_hint)
+		return -EINVAL;
+	if (!apic_filter_irq_dest(cell, irq_msg))
+		return -EPERM;
+
+	return 0;
 }

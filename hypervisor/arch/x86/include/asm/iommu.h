@@ -56,4 +56,6 @@ void iommu_check_pending_faults(void);
 
 bool iommu_cell_emulates_ir(struct cell *cell);
 
+int iommu_validate_irq_msg(struct cell *cell, struct apic_irq_message *irq_msg);
+
 #endif
