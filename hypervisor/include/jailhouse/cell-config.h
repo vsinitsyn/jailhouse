@@ -150,6 +150,7 @@ struct jailhouse_iommu {
 	__u8 amd_base_cap;
 	__u8 amd_msi_cap;
 	__u32 amd_features;
+	__u16 amd_max_dev_id;
 } __attribute__((packed));
 
 #define JAILHOUSE_SYSTEM_SIGNATURE	"JAILSYST"

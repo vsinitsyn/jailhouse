@@ -595,6 +595,10 @@ class IOMMUConfigAMD(IOMMUConfig):
     def vendor(self):
         return 'AMD'
 
+    def update_max_dev_id(self, device_id):
+        if self.amd_max_dev_id < device_id:
+            self.amd_max_dev_id = device_id
+
 
 def parse_iomem(pcidevices):
     regions = IOMemRegionTree.parse_iomem_tree(
@@ -942,7 +946,8 @@ def parse_ivrs(pcidevices, ioapics):
                 # IVHD block type 0x11 has exact EFR copy but type 0x10 may
                 # overwrite what hardware reports. Set reserved bit 0 in that
                 # case to indicate that the value is in use.
-                amd_features=((iommu_feat | 0x1) if block_type == 0x10 else 0)
+                amd_features=((iommu_feat | 0x1) if block_type == 0x10 else 0),
+                amd_max_dev_id=0
             )
             units.append(this_unit)
 
@@ -955,11 +960,13 @@ def parse_ivrs(pcidevices, ioapics):
                     # All
                     for d in pcidevices:
                         d.iommu = len(units) - 1
+                        this_unit.update_max_dev_id(d.bdf())
                 elif entry_type == 0x02:
                     # Select
                     for d in pcidevices:
                         if d.bdf() == device_id:
                             d.iommu = len(units) - 1
+                            this_unit.update_max_dev_id(d.bdf())
                 elif entry_type == 0x03:
                     # Start of range
                     bdf_start_range = StartRange(
@@ -975,6 +982,10 @@ def parse_ivrs(pcidevices, ioapics):
                             d.iommu = len(units) - 1
                             if bdf_start_range.dev_id_b is not None:
                                 d.alias_bdf = bdf_start_range.dev_id_b
+                                this_unit.update_max_dev_id(d.alias_bdf)
+                            else:
+                                # not an alias
+                                this_unit.update_max_dev_id(d.bdf())
                     bdf_start_range = None
                 elif entry_type == 0x42:
                     # Alias select
@@ -984,6 +995,7 @@ def parse_ivrs(pcidevices, ioapics):
                         if d.bdf() == device_id:
                             d.alias_bdf = device_id_b
                             d.iommu = len(units) - 1
+                            this_unit.update_max_dev_id(d.alias_bdf)
                 elif entry_type == 0x43:
                     # Alias start of range
                     (device_id_b,) = struct.unpack('<xHx', f.read(4))
@@ -1002,6 +1014,7 @@ def parse_ivrs(pcidevices, ioapics):
                             if chip.id == handle:
                                 chip.bdf = device_id
                                 chip.iommu = len(units) - 1
+                                this_unit.update_max_dev_id(chip.bdf)
                 else:
                     # Reserved or ignored entries
                     if entry_type >= 0x40:

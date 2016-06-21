@@ -85,7 +85,6 @@ struct dev_table_entry {
 #define DTE_IW				(1UL << 62)
 
 #define DEV_TABLE_SEG_MAX		8
-#define DEV_TABLE_SIZE			0x200000
 
 union buf_entry {
 	u32 raw32[4];
@@ -141,6 +140,7 @@ static struct amd_iommu {
 	u8 dev_tbl_seg_sup;
 	u32 cmd_tail_ptr;
 	bool he_supported;
+	u16 max_dev_id;
 } iommu_units[JAILHOUSE_MAX_IOMMU_UNITS];
 
 #define for_each_iommu(iommu) for (iommu = iommu_units; \
@@ -323,11 +323,16 @@ int iommu_init(void)
 	for (n = 0; iommu->base && n < iommu_count_units(); iommu++, n++) {
 		entry = &iommu_units[iommu_units_count];
 
-		entry->idx = n;
-
 		/* Protect against accidental VT-d configs. */
 		if (!iommu->amd_bdf)
 			return trace_error(-EINVAL);
+
+		/* Protect against old configs. */
+		if (!iommu->amd_max_dev_id)
+			return trace_error(-EINVAL);
+
+		entry->idx = n;
+		entry->max_dev_id = iommu->amd_max_dev_id;
 
 		printk("AMD IOMMU @0x%lx/0x%x\n", iommu->base, iommu->size);
 
@@ -444,21 +449,29 @@ static struct dev_table_entry *get_dev_table_entry(struct amd_iommu *iommu,
 						   u16 bdf, bool allocate)
 {
 	struct dev_table_entry *devtable_seg;
-	u8 seg_idx, seg_shift;
+	u16 seg_mask, first_bdf, seg_entries;
+	u8 seg_idx, seg_shift, n_segs;
 	u64 reg_base, reg_val;
 	unsigned int n;
-	u16 seg_mask;
 	u32 seg_size;
 
 	if (!iommu->dev_tbl_seg_sup) {
 		seg_mask = 0;
 		seg_idx = 0;
-		seg_size = DEV_TABLE_SIZE;
+		seg_size = iommu->max_dev_id * sizeof(*devtable_seg);
 	} else {
 		seg_shift = BITS_PER_SHORT - iommu->dev_tbl_seg_sup;
 		seg_mask = ~((1 << seg_shift) - 1);
 		seg_idx = (seg_mask & bdf) >> seg_shift;
-		seg_size = DEV_TABLE_SIZE / (1 << iommu->dev_tbl_seg_sup);
+
+		n_segs = 1 << iommu->dev_tbl_seg_sup;
+		seg_entries = 0xffff / n_segs;
+
+		first_bdf = seg_entries * seg_idx;
+		if (iommu->max_dev_id < first_bdf + seg_entries)
+			seg_entries = iommu->max_dev_id - first_bdf + 1;
+
+		seg_size = seg_entries * sizeof(*devtable_seg);
 	}
 
 	/*
