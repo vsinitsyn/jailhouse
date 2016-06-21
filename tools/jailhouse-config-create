@@ -559,18 +559,33 @@ class IOMemRegionTree:
 
 
 class IOMMUConfig(object):
-    def __init__(self, props):
+    def __init__(self, **props):
         self.base_addr = props['base_addr']
         self.mmio_size = props['mmio_size']
-        if 'amd_bdf' in props:
-            self.amd_bdf = props['amd_bdf']
-            self.amd_base_cap = props['amd_base_cap']
-            self.amd_msi_cap = props['amd_msi_cap']
-            self.amd_features = props['amd_features']
 
     @property
-    def is_amd_iommu(self):
-        return hasattr(self, 'amd_bdf')
+    def vendor(self):
+        raise NotImplementedError
+
+
+class IOMMUConfigIntel(IOMMUConfig):
+    @property
+    def vendor(self):
+        return 'Intel'
+
+
+class IOMMUConfigAMD(IOMMUConfig):
+    def __init__(self, **props):
+        super(IOMMUConfigAMD, self).__init__(**props)
+        self.amd_bdf = props['amd_bdf']
+        self.amd_base_cap = props['amd_base_cap']
+        self.amd_msi_cap = props['amd_msi_cap']
+        self.amd_features = props['amd_features']
+        self.amd_max_dev_id = props['amd_max_dev_id']
+
+    @property
+    def vendor(self):
+        return 'AMD'
 
 
 def parse_iomem(pcidevices):
@@ -764,10 +779,10 @@ def parse_dmar(pcidevices, ioapics, dmar_regions):
                                    'enabled.')
             if size > 0x3000:
                 raise RuntimeError('Unexpectedly large DMAR region.')
-            units.append(IOMMUConfig({
-                'base_addr': base,
-                'mmio_size': size
-            }))
+            units.append(IOMMUConfigIntel(
+                base_addr=base,
+                mmio_size=size
+            ))
             if flags & 1:
                 for d in pcidevices:
                     if d.iommu is None:
@@ -908,17 +923,18 @@ def parse_ivrs(pcidevices, ioapics):
                 # Allocate 16K
                 mmio_size = 16384
 
-            units.append(IOMMUConfig({
-                'base_addr': base_addr,
-                'mmio_size': mmio_size,
-                'amd_bdf': iommu_bdf,
-                'amd_base_cap': base_cap_ofs,
-                'amd_msi_cap': msi_cap_ofs,
+            this_unit = IOMMUConfigAMD(
+                base_addr=base_addr,
+                mmio_size=mmio_size,
+                amd_bdf=iommu_bdf,
+                amd_base_cap=base_cap_ofs,
+                amd_msi_cap=msi_cap_ofs,
                 # IVHD block type 0x11 has exact EFR copy but type 0x10 may
                 # overwrite what hardware reports. Set reserved bit 0 in that
                 # case to indicate that the value is in use.
-                'amd_features': (iommu_feat | 0x1) if block_type == 0x10 else 0
-            }))
+                amd_features=((iommu_feat | 0x1) if block_type == 0x10 else 0)
+            )
+            units.append(this_unit)
 
             bdf_start_range = None
             while block_length > 0:
