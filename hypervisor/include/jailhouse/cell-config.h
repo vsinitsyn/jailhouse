@@ -109,11 +109,15 @@ struct jailhouse_irqchip {
 #define JAILHOUSE_PCI_TYPE_BRIDGE	0x02
 #define JAILHOUSE_PCI_TYPE_IVSHMEM	0x03
 
+#define JAILHOUSE_PCI_FLAGS_ALIAS	0x01
+
 struct jailhouse_pci_device {
 	__u8 type;
+	__u8 flags;
 	__u8 iommu;
 	__u16 domain;
 	__u16 bdf;
+	__u16 alias_bdf;
 	__u32 bar_mask[6];
 	__u16 caps_start;
 	__u16 num_caps;

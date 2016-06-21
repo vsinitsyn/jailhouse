@@ -19,6 +19,7 @@
 # to change the generated C-code.
 
 from __future__ import print_function
+from collections import namedtuple
 import sys
 import os
 import re
@@ -314,6 +315,7 @@ class PCIDevice:
         self.num_msix_vectors = 0
         self.msix_region_size = 0
         self.msix_address = 0
+        self.alias_bdf = None
         for c in caps:
             if c.id in (0x05, 0x11):
                 msg_ctrl = struct.unpack('<H', c.content[:2])[0]
@@ -335,6 +337,12 @@ class PCIDevice:
 
     def bdf(self):
         return self.bus << 8 | self.dev << 3 | self.fn
+
+    def flags(self):
+        if self.alias_bdf is not None:
+            return 1  # JAILHOUSE_PCI_FLAGS_ALIAS
+        else:
+            return 0
 
     @staticmethod
     def parse_pcidevice_sysfsdir(basedir, dir):
@@ -862,6 +870,8 @@ def parse_ivrs(pcidevices, ioapics):
         bus, dev, fun = (bdf >> 8) & 0xff, (bdf >> 3) & 0x1f, bdf & 0x7
         return '%02x:%02x.%x' % (bus, dev, fun)
 
+    StartRange = namedtuple('StartRange', ['dev_id_a', 'dev_id_b'])
+
     f = input_open('/sys/firmware/acpi/tables/IVRS', 'rb')
     signature = f.read(4)
     if signature != b'IVRS':
@@ -952,27 +962,36 @@ def parse_ivrs(pcidevices, ioapics):
                             d.iommu = len(units) - 1
                 elif entry_type == 0x03:
                     # Start of range
-                    bdf_start_range = device_id
+                    bdf_start_range = StartRange(
+                        dev_id_a=device_id,
+                        dev_id_b=None
+                    )
                 elif entry_type == 0x04:
                     # End of range
                     if bdf_start_range is None:
                         continue
                     for d in pcidevices:
-                        if d.bdf() >= bdf_start_range and d.bdf() <= device_id:
+                        if bdf_start_range.dev_id_a <= d.bdf() <= device_id:
                             d.iommu = len(units) - 1
+                            if bdf_start_range.dev_id_b is not None:
+                                d.alias_bdf = bdf_start_range.dev_id_b
                     bdf_start_range = None
                 elif entry_type == 0x42:
                     # Alias select
                     (device_id_b,) = struct.unpack('<xHx', f.read(4))
                     block_length -= 4
                     for d in pcidevices:
-                        if d.bdf() == device_id_b:
+                        if d.bdf() == device_id:
+                            d.alias_bdf = device_id_b
                             d.iommu = len(units) - 1
                 elif entry_type == 0x43:
                     # Alias start of range
                     (device_id_b,) = struct.unpack('<xHx', f.read(4))
                     block_length -= 4
-                    bdf_start_range = device_id_b
+                    bdf_start_range = StartRange(
+                        dev_id_a=device_id,
+                        dev_id_b=device_id_b,
+                    )
                 elif entry_type == 0x48:
                     # Special device
                     (handle, device_id_b, variety) = struct.unpack(

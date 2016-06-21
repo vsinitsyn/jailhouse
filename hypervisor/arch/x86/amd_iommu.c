@@ -504,6 +504,12 @@ static struct dev_table_entry *get_dev_table_entry(struct amd_iommu *iommu,
 	return &devtable_seg[bdf & ~seg_mask];
 }
 
+static u16 amd_iommu_get_device_id(const struct jailhouse_pci_device *info)
+{
+	return (info->flags & JAILHOUSE_PCI_FLAGS_ALIAS) ?
+		info->alias_bdf : info->bdf;
+}
+
 int iommu_add_pci_device(struct cell *cell, struct pci_device *device)
 {
 	struct dev_table_entry *dte = NULL;
@@ -521,7 +527,7 @@ int iommu_add_pci_device(struct cell *cell, struct pci_device *device)
 		return trace_error(-ERANGE);
 
 	iommu = &iommu_units[device->info->iommu];
-	bdf = device->info->bdf;
+	bdf = amd_iommu_get_device_id(device->info);
 
 	dte = get_dev_table_entry(iommu, bdf, true);
 	if (!dte)
@@ -561,7 +567,7 @@ void iommu_remove_pci_device(struct pci_device *device)
 		return;
 
 	iommu = &iommu_units[device->info->iommu];
-	bdf = device->info->bdf;
+	bdf = amd_iommu_get_device_id(device->info);
 
 	dte = get_dev_table_entry(iommu, bdf, false);
 	if (!dte)
