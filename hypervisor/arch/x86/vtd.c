@@ -190,7 +190,6 @@ static const struct vtd_entry inv_global_int = {
 static struct vtd_entry __attribute__((aligned(PAGE_SIZE)))
 	root_entry_table[256];
 static union vtd_irte *int_remap_table;
-static unsigned int int_remap_table_size_log2;
 static struct paging vtd_paging[VTD_MAX_PAGE_TABLE_LEVELS];
 static void *dmar_reg_base;
 static void *unit_inv_queue;
@@ -593,9 +592,7 @@ int iommu_init(void)
 	void *reg_base;
 	int err;
 
-	/* n = roundup(log2(system_config->interrupt_limit)) */
-	for (n = 0; (1UL << n) < (system_config->interrupt_limit); n++)
-		; /* empty loop */
+	n = iommu_get_remap_table_order();
 	if (n >= 16)
 		return trace_error(-EINVAL);
 

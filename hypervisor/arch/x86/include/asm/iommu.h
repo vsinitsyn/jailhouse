@@ -22,11 +22,14 @@
 #include <asm/percpu.h>
 
 extern unsigned int fault_reporting_cpu_id;
+extern unsigned int int_remap_table_size_log2;
 
 unsigned int iommu_count_units(void);
 unsigned int iommu_mmio_count_regions(struct cell *cell);
 
 int iommu_init(void);
+
+unsigned int iommu_get_remap_table_order(void);
 
 int iommu_cell_init(struct cell *cell);
 int iommu_map_memory_region(struct cell *cell,

@@ -15,6 +15,7 @@
 #include <asm/iommu.h>
 
 unsigned int fault_reporting_cpu_id;
+unsigned int int_remap_table_size_log2;
 
 unsigned int iommu_count_units(void)
 {
@@ -24,6 +25,17 @@ unsigned int iommu_count_units(void)
 	       system_config->platform_info.x86.iommu_units[units].base)
 		units++;
 	return units;
+}
+
+unsigned int iommu_get_remap_table_order(void)
+{
+	unsigned int n;
+
+	/* n = roundup(log2(system_config->interrupt_limit)) */
+	for (n = 0; (1UL << n) < (system_config->interrupt_limit); n++)
+		; /* empty loop */
+
+	return n;
 }
 
 struct per_cpu *iommu_select_fault_reporting_cpu(void)
