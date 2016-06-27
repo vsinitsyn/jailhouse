@@ -112,6 +112,8 @@ union buf_entry {
 # define CMD_INV_IOMMU_PAGES_SIZE	(1 << 0)
 # define CMD_INV_IOMMU_PAGES_PDE	(1 << 1)
 
+#define CMD_INV_INT_TABLE		0x05
+
 #define EVENT_TYPE_ILL_DEV_TAB_ENTRY	0x01
 #define EVENT_TYPE_PAGE_TAB_HW_ERR	0x04
 #define EVENT_TYPE_ILL_CMD_ERR		0x05
@@ -624,6 +626,16 @@ static void amd_iommu_inv_dte(struct amd_iommu *iommu, u16 device_id)
 	amd_iommu_submit_command(iommu, &invalidate_dte, false);
 }
 
+static void amd_iommu_inv_int_table(struct amd_iommu *iommu, u16 device_id)
+{
+	union buf_entry invalidate_int_table = {{ 0 }};
+
+	invalidate_int_table.raw32[0] = device_id;
+	invalidate_int_table.type = CMD_INV_INT_TABLE;
+
+	amd_iommu_submit_command(iommu, &invalidate_int_table, false);
+}
+
 static struct dev_table_entry *get_dev_table_entry(struct amd_iommu *iommu,
 						   u16 bdf, bool allocate)
 {
@@ -737,9 +749,13 @@ static int amd_iommu_add_ioapic(struct cell *cell,
 
 int iommu_add_pci_device(struct cell *cell, struct pci_device *device)
 {
+	unsigned int max_vectors = MAX(device->info->num_msi_vectors,
+				       device->info->num_msix_vectors);
 	struct dev_table_entry *dte = NULL;
+	union irte *int_table_root;
 	struct amd_iommu *iommu;
 	u16 bdf;
+	int err;
 
 	// HACK for QEMU
 	if (iommu_units_count == 0)
@@ -754,9 +770,16 @@ int iommu_add_pci_device(struct cell *cell, struct pci_device *device)
 	iommu = &iommu_units[device->info->iommu];
 	bdf = amd_iommu_get_device_id(device->info);
 
+	err = amd_iommu_reserve_remap_region(cell, bdf, max_vectors,
+			device->info->iommu);
+	if (err)
+		return err;
+
 	dte = get_dev_table_entry(iommu, bdf, true);
-	if (!dte)
-		return -ENOMEM;
+	if (!dte) {
+		err = -ENOMEM;
+		goto out_err;
+	}
 
 	memset(dte, 0, sizeof(*dte));
 
@@ -768,7 +791,10 @@ int iommu_add_pci_device(struct cell *cell, struct pci_device *device)
 		paging_hvirt2phys(cell->arch.svm.npt_iommu_structs.root_table) |
 		DTE_PAGING_MODE_4_LEVEL | DTE_TRANSLATION_VALID | DTE_VALID;
 
-	/* TODO: Interrupt remapping. For now, just forward them unmapped. */
+	int_table_root = cell->arch.amd_iommu.int_remap_table;
+
+	dte->raw64[2] = DTE_INTCTL_REMAP | paging_hvirt2phys(int_table_root) |
+		(int_remap_table_size_log2 << DTE_INT_TAB_LEN_SHIFT) | DTE_IV;
 
 	/* Flush caches, just to be sure. */
 	arch_paging_flush_cpu_caches(dte, sizeof(*dte));
@@ -776,6 +802,10 @@ int iommu_add_pci_device(struct cell *cell, struct pci_device *device)
 	amd_iommu_inv_dte(iommu, bdf);
 
 	return 0;
+
+out_err:
+	amd_iommu_free_remap_region(cell, bdf);
+	return err;
 }
 
 static void amd_iommu_remove_ioapic(struct cell *cell,
@@ -830,6 +860,12 @@ void iommu_remove_pci_device(struct pci_device *device)
 	 * DMA requests until the entry is reprogrammed for its new owner.
 	 */
 	dte->raw64[0] = DTE_VALID | DTE_TRANSLATION_VALID;
+
+	/* Target-abort interrupt messages we may receive. */
+	dte->raw64[2] = DTE_INTCTL_ABORT | DTE_IV;
+
+	/* Free the interrupt remapping region */
+	amd_iommu_free_remap_region(device->cell, bdf);
 
 	/* Flush caches, just to be sure. */
 	arch_paging_flush_cpu_caches(dte, sizeof(*dte));
@@ -975,15 +1011,56 @@ struct apic_irq_message iommu_get_remapped_root_int(unsigned int iommu,
 {
 	struct apic_irq_message dummy = { .valid = 0 };
 
-	/* TODO: Implement */
+	/* This is never called */
 	return dummy;
 }
 
 int iommu_map_interrupt(struct cell *cell, u16 device_id, unsigned int vector,
 			struct apic_irq_message irq_msg)
 {
-	/* TODO: Implement */
-	return -ENOSYS;
+	union irte *remap_table = cell->arch.amd_iommu.int_remap_table;
+	struct remap_region *remap_region;
+	struct amd_iommu *iommu;
+	union irte *irte;
+	u16 base_index;
+	int err;
+
+	// HACK for QEMU
+	if (iommu_units_count == 0)
+		return -ENOSYS;
+
+	remap_region = &device_remap_regions[device_id];
+	base_index = remap_region->base_index & ~REGION_ALLOCATED;
+	if (base_index == remap_region->base_index)
+		return -EINVAL; /* Not allocated */
+
+	if (vector >= system_config->interrupt_limit ||
+	    base_index >= system_config->interrupt_limit - vector)
+		return -ERANGE;
+
+	irte = &remap_table[base_index + vector];
+	iommu = &iommu_units[remap_region->iommu];
+
+	err = iommu_validate_irq_msg(cell, &irq_msg);
+	if (err)
+		return err;
+
+	irte->raw32 = 0;
+	/* XXX: Level-triggered vs edge-triggered? */
+	irte->vector = irq_msg.vector;
+	irte->destination = irq_msg.destination;
+	irte->guest_mode = 0; /* Always off unless we enable AVIC */
+	irte->destination_mode = irq_msg.dest_logical;
+	irte->int_type = irq_msg.delivery_mode;
+	irte->valid = 1;
+
+	/* Flush caches, just to be sure. */
+	arch_paging_flush_cpu_caches(irte, sizeof(*irte));
+
+	amd_iommu_inv_int_table(iommu, device_id);
+	amd_iommu_completion_wait(iommu);
+
+	return base_index + vector;
 }
 
 void iommu_shutdown(void)
