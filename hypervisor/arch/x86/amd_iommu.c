@@ -129,6 +129,34 @@ union buf_entry {
 
 #define AMD_IOMMU_MAX_PAGE_TABLE_LEVELS	4
 
+#define MAX_INT_REMAP_TABLE_ORDER	11
+
+union irte {
+	struct {
+		u32 valid:1;
+		u32 sup_iopf:1;
+		u32 int_type:3;
+		u32 rq_eoi:1;
+		u32 destination_mode:1;
+		u32 guest_mode:1;
+		u32 destination:8;
+		u32 vector:8;
+		u32 pad0:8;
+	};
+	u32 raw32;
+} __attribute__((packed));
+
+#define REGION_ALLOCATED	0x8000U
+
+struct remap_region {
+	u16 base_index;
+	u8 count;
+	u8 iommu;
+};
+
+static struct remap_region *device_remap_regions;
+static u16 max_device_id;
+
 static struct amd_iommu {
 	int idx;
 	void *mmio_base;
@@ -161,6 +189,17 @@ unsigned int iommu_mmio_count_regions(struct cell *cell)
 bool iommu_cell_emulates_ir(struct cell *cell)
 {
 	return false;
+}
+
+static void * alloc_zero_pages(unsigned int size)
+{
+	void *data;
+
+	data = page_alloc(&mem_pool, PAGES(size));
+	if (data)
+		memset(data, 0, size);
+
+	return data;
 }
 
 static int amd_iommu_init_pci(struct amd_iommu *entry,
@@ -319,6 +358,12 @@ int iommu_init(void)
 	unsigned int n;
 	int err;
 
+	n = iommu_get_remap_table_order();
+	if (n >= MAX_INT_REMAP_TABLE_ORDER)
+		return trace_error(-EINVAL);
+
+	int_remap_table_size_log2 = n;
+
 	iommu = &system_config->platform_info.x86.iommu_units[0];
 	for (n = 0; iommu->base && n < iommu_count_units(); iommu++, n++) {
 		entry = &iommu_units[iommu_units_count];
@@ -333,6 +378,8 @@ int iommu_init(void)
 
 		entry->idx = n;
 		entry->max_dev_id = iommu->amd_max_dev_id;
+		if (entry->max_dev_id > max_device_id)
+			max_device_id = entry->max_dev_id;
 
 		printk("AMD IOMMU @0x%lx/0x%x\n", iommu->base, iommu->size);
 
@@ -357,17 +404,105 @@ int iommu_init(void)
 		iommu_units_count++;
 	}
 
+	n = (max_device_id + 1) * sizeof(struct remap_region);
+	device_remap_regions = alloc_zero_pages(n);
+	if (!device_remap_regions)
+		return -ENOMEM;
+
 	return iommu_cell_init(&root_cell);
+}
+
+#define IRTE_ALLOCATED	(~1U)
+
+/*
+ * XXX: this is modelled after vtd_reserve_int_remap_region().
+ * Maybe consolidate both.
+ */
+static int amd_iommu_find_remap_region(struct cell *cell, u8 count)
+{
+	union irte *remap_table = cell->arch.amd_iommu.int_remap_table;
+	int n, start = -E2BIG;
+
+	for (n = 0; n < system_config->interrupt_limit; n++) {
+		if (remap_table[n].raw32) {
+			start = -E2BIG;
+			continue;
+		}
+		if (start < 0)
+			start = n;
+		if (n + 1 == start + count) {
+			return start;
+		}
+	}
+	return trace_error(-E2BIG);
+}
+
+static int amd_iommu_reserve_remap_region(struct cell *cell, u16 device_id,
+		                          u8 count, u8 iommu)
+{
+	union irte *remap_table = cell->arch.amd_iommu.int_remap_table;
+	struct remap_region *region;
+	int base_index, n;
+
+	if (device_id > max_device_id)
+		return trace_error(-ERANGE);
+
+	region = &device_remap_regions[device_id];
+
+	if (count == 0 || region->base_index & REGION_ALLOCATED)
+		return 0; /* Nothing to do */
+
+	base_index = amd_iommu_find_remap_region(cell, count);
+	if (base_index < 0)
+		return base_index;
+
+	printk("Reserving %u interrupt(s) for device %04x "
+			"at index %d\n", count, device_id, base_index);
+	region->base_index = (u16)base_index | REGION_ALLOCATED;
+	region->count = count;
+	region->iommu = iommu;
+
+	for (n = base_index; n < base_index + count; n++)
+		remap_table[n].raw32 = IRTE_ALLOCATED;
+
+	return 0;
+}
+
+static void amd_iommu_free_remap_region(struct cell *cell, u16 device_id)
+{
+	union irte *remap_table = cell->arch.amd_iommu.int_remap_table;
+	struct remap_region *region;
+	int base_index, n;
+
+	if (device_id > max_device_id)
+		return;
+
+	region = &device_remap_regions[device_id];
+	base_index = region->base_index & ~REGION_ALLOCATED;
+	if (base_index == region->base_index)
+		return; /* Not allocated */
+
+	for (n = base_index; n < base_index + region->count; n++)
+		remap_table[n].raw32 = 0;
+	region->base_index &= ~REGION_ALLOCATED;
+
+	return;
 }
 
 int iommu_cell_init(struct cell *cell)
 {
+	unsigned int size = 1 << int_remap_table_size_log2;
+
 	// HACK for QEMU
 	if (iommu_units_count == 0)
 		return 0;
 
 	if (cell->id > 0xffff)
 		return trace_error(-ERANGE);
+
+	cell->arch.amd_iommu.int_remap_table = alloc_zero_pages(size);
+	if (!cell->arch.amd_iommu.int_remap_table)
+		return trace_error(-ENOMEM);
 
 	return 0;
 }
@@ -600,6 +735,12 @@ void iommu_remove_pci_device(struct pci_device *device)
 
 void iommu_cell_exit(struct cell *cell)
 {
+	unsigned int size;
+
+	size = 1 << int_remap_table_size_log2;
+
+	page_free(&mem_pool, cell->arch.amd_iommu.int_remap_table,
+			PAGES(size));
 }
 
 static void wait_for_zero(volatile u64 *sem, unsigned long mask)
@@ -748,6 +889,8 @@ void iommu_shutdown(void)
 			AMD_CONTROL_EVT_LOG_EN | AMD_CONTROL_EVT_INT_EN);
 		mmio_write64(iommu->mmio_base + AMD_CONTROL_REG, ctrl_reg);
 	}
+
+	/* No need to free anything as we know Jailhouse is shutting down */
 }
 
 static void amd_iommu_print_event(struct amd_iommu *iommu,

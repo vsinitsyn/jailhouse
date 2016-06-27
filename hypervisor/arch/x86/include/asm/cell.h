@@ -49,6 +49,9 @@ struct arch_cell {
 			 * cell. */
 			bool ir_emulation;
 		} vtd; /**< Intel VT-d specific fields. */
+		struct {
+			void *int_remap_table;
+		} amd_iommu;
 	};
 
 	/** Shadow value of PCI config space address port register. */
