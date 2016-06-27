@@ -25,6 +25,7 @@
 #include <jailhouse/string.h>
 #include <asm/amd_iommu.h>
 #include <asm/apic.h>
+#include <asm/ioapic.h>
 #include <asm/iommu.h>
 
 #define CAPS_IOMMU_HEADER_REG		0x00
@@ -83,6 +84,11 @@ struct dev_table_entry {
 #define DTE_PAGING_MODE_4_LEVEL		(4UL << 9)
 #define DTE_IR				(1UL << 61)
 #define DTE_IW				(1UL << 62)
+
+#define DTE_IV				(1UL << 0)
+#define DTE_INT_TAB_LEN_SHIFT		1
+#define DTE_INTCTL_ABORT		(0UL << 60)
+#define DTE_INTCTL_REMAP		(2UL << 60)
 
 #define DEV_TABLE_SEG_MAX		8
 
@@ -489,9 +495,41 @@ static void amd_iommu_free_remap_region(struct cell *cell, u16 device_id)
 	return;
 }
 
+static int amd_iommu_add_ioapic(struct cell *cell,
+			        const struct jailhouse_irqchip *irqchip);
+
+#define IRQCHIP_DEVICE_ID(x)	((x)->id & 0xffff)
+#define IRQCHIP_IOMMU_ID(x)	(((x)->id >> 16) & 0xffff)
+
+static struct dev_table_entry *get_dev_table_entry(struct amd_iommu *iommu,
+						   u16 bdf, bool allocate);
+
+static int amd_iommu_cell_init_ioapic(struct cell *cell)
+{
+	const struct jailhouse_irqchip *irqchip =
+		jailhouse_cell_irqchips(cell->config);
+	unsigned int n;
+	int err;
+
+	for (n = 0; n < cell->config->num_irqchips; n++, irqchip++) {
+		err = amd_iommu_reserve_remap_region(
+				cell, IRQCHIP_DEVICE_ID(irqchip),
+				IOAPIC_NUM_PINS, IRQCHIP_IOMMU_ID(irqchip));
+		if (err)
+			return err;
+
+		err = amd_iommu_add_ioapic(cell, irqchip);
+		if (err)
+			return err;
+	}
+
+	return 0;
+}
+
 int iommu_cell_init(struct cell *cell)
 {
 	unsigned int size = 1 << int_remap_table_size_log2;
+	int err;
 
 	// HACK for QEMU
 	if (iommu_units_count == 0)
@@ -503,6 +541,12 @@ int iommu_cell_init(struct cell *cell)
 	cell->arch.amd_iommu.int_remap_table = alloc_zero_pages(size);
 	if (!cell->arch.amd_iommu.int_remap_table)
 		return trace_error(-ENOMEM);
+
+	err = amd_iommu_cell_init_ioapic(cell);
+	if (err) {
+		iommu_cell_exit(cell);
+		return trace_error(err);
+	}
 
 	return 0;
 }
@@ -658,6 +702,39 @@ static u16 amd_iommu_get_device_id(const struct jailhouse_pci_device *info)
 		info->alias_bdf : info->bdf;
 }
 
+static int amd_iommu_add_ioapic(struct cell *cell,
+				const struct jailhouse_irqchip *irqchip)
+{
+	struct dev_table_entry *dte = NULL;
+	union irte *int_table_root;
+	struct amd_iommu *iommu;
+	u16 device_id;
+	u8 iommu_id;
+
+	device_id = IRQCHIP_DEVICE_ID(irqchip);
+	iommu_id = IRQCHIP_IOMMU_ID(irqchip);
+
+	iommu = &iommu_units[iommu_id];
+
+	dte = get_dev_table_entry(iommu, device_id, true);
+	if (!dte)
+		return -ENOMEM;
+
+	memset(dte, 0, sizeof(*dte));
+
+	int_table_root = cell->arch.amd_iommu.int_remap_table;
+
+	dte->raw64[2] = DTE_INTCTL_REMAP | paging_hvirt2phys(int_table_root) |
+		(int_remap_table_size_log2 << DTE_INT_TAB_LEN_SHIFT) | DTE_IV;
+
+	/* Flush caches, just to be sure. */
+	arch_paging_flush_cpu_caches(dte, sizeof(*dte));
+
+	amd_iommu_inv_dte(iommu, device_id);
+
+	return 0;
+}
+
 int iommu_add_pci_device(struct cell *cell, struct pci_device *device)
 {
 	struct dev_table_entry *dte = NULL;
@@ -701,6 +778,33 @@ int iommu_add_pci_device(struct cell *cell, struct pci_device *device)
 	return 0;
 }
 
+static void amd_iommu_remove_ioapic(struct cell *cell,
+		                    const struct jailhouse_irqchip *irqchip)
+{
+	struct dev_table_entry *dte = NULL;
+	struct amd_iommu *iommu;
+	u16 device_id;
+	u8 iommu_id;
+
+	device_id = IRQCHIP_DEVICE_ID(irqchip);
+	iommu_id = IRQCHIP_IOMMU_ID(irqchip);
+
+	iommu = &iommu_units[iommu_id];
+	dte = get_dev_table_entry(iommu, device_id, false);
+	if (!dte)
+		return;
+
+	/* Target-abort interrupt messages we may receive. */
+	dte->raw64[2] = DTE_INTCTL_ABORT | DTE_IV;
+
+	/* Flush caches, just to be sure. */
+	arch_paging_flush_cpu_caches(dte, sizeof(*dte));
+
+	amd_iommu_free_remap_region(cell, device_id);
+
+	amd_iommu_inv_dte(iommu, device_id);
+}
+
 void iommu_remove_pci_device(struct pci_device *device)
 {
 	struct dev_table_entry *dte = NULL;
@@ -735,12 +839,17 @@ void iommu_remove_pci_device(struct pci_device *device)
 
 void iommu_cell_exit(struct cell *cell)
 {
-	unsigned int size;
+	const struct jailhouse_irqchip *irqchip =
+		jailhouse_cell_irqchips(cell->config);
+	unsigned int n, size;
 
 	size = 1 << int_remap_table_size_log2;
 
 	page_free(&mem_pool, cell->arch.amd_iommu.int_remap_table,
 			PAGES(size));
+
+	for (n = 0; n < cell->config->num_irqchips; n++, irqchip++)
+		amd_iommu_remove_ioapic(cell, irqchip);
 }
 
 static void wait_for_zero(volatile u64 *sem, unsigned long mask)
